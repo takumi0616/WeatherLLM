@@ -1,0 +1,17 @@
+# Generated artifacts (keep repo clean)
+outputs/
+fine_tuned-model/
+logs/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Large model files (avoid accidental commits)
+*.safetensors
+*.bin
+*.pt
+*.pth
+
+# Notebook checkpoints
+*.ipynb_checkpoints/
