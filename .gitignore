@@ -1,6 +1,7 @@
 # Generated artifacts (keep repo clean)
 outputs/
 fine_tuned-model/
+models/
 logs/
 
 # Python cache
@@ -15,3 +16,4 @@ __pycache__/
 
 # Notebook checkpoints
 *.ipynb_checkpoints/
+*.log
