@@ -61,6 +61,8 @@
   - google/gemma-2-2b-jpn-it（Gemma-2）を既定。`--run-all` は Gemma-2 で LoRA 学習、Gemma-3 は推論のみ（テキストのみ）
 - gpt_oss.py
   - openai/gpt-oss-20b と openai/gpt-oss-120b を対象。`--run-all` で 20B は QLoRA（4bit）学習、120B は推論のみ（80GB級GPUが推奨）
+- llava.py
+  - LLaVA（マルチモーダル: 画像＋テキスト）を対象。`--run-all` でダウンロード→画像付き軽い推論（学習はスキップ、推論のみ）。`--use-4bit-inference` で省メモリ推論可
 - outputs/（自動生成）
   - 各スクリプトの実行成果物を保存
 - models/（自動生成）
@@ -164,6 +166,18 @@ tail -f gptoss_120b.log
 - 備考: Harmony 形式の chat_template を自動適用。`HF_TOKEN` の設定が必要。120B は学習スキップ。
 
 ---
+
+### 6) LLaVA（画像＋テキスト）: ダウンロード→軽い推論（1コマンド）
+```shell
+notify-run wsl-ubuntu -- nohup python llava.py --run-all --device cuda --model llava-hf/llava-1.5-7b-hf --image "https://llava-vl.github.io/static/images/view.jpg" --prompt "この画像の内容を日本語で詳しく説明してください" --max-new-tokens 256 --tag vqa_demo > llava.log 2>&1 &
+tail -f llava.log
+```
+- ベース保存: `models/llava-hf_llava-1.5-7b-hf/`
+- 生成物: `outputs/llava-hf_llava-1.5-7b-hf/<timestamp>/vqa_demo/`
+  - generation_base.txt, messages_base.json, run_args.json
+- 備考:
+  - 本スクリプトでは LLaVA は推論のみ（LoRA/QLoRA 学習は対象外）。よって `--epochs` は効果対象外
+  - メモリが厳しい場合は `--use-4bit-inference` を付与して省メモリ推論可能（bitsandbytes 必須）
 
 ## 生成物（成果物）の構成
 
