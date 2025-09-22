@@ -10,7 +10,7 @@ Borea (Phi-3.5 系) をローカルPython環境で実行するための純Python
 ```shell
 # 1コマンドで一連の処理を実行（GPU, bf16/fp16、自動スキップ対応）
 # --local-model-dir と --ft-output-dir を省略すると model ID から自動生成したディレクトリに保存します。
-notify-run wsl-ubuntu -- nohup python borea.py --run-all --device cuda --max-new-tokens 2048 --epochs 10 --batch-size 2 --tag lora_all > borea.log 2>&1 &
+notify-run via-tml2 -- nohup python borea.py --run-all --device cuda --max-new-tokens 2048 --epochs 10 --batch-size 2 --tag lora_all > borea.log 2>&1 &
 ```
 
 処理の流れ（--run-all 指定時）
@@ -69,6 +69,14 @@ from llm_utils import (
     save_text,
     save_json,
     safe_model_dirname,
+    # DDP helpers
+    init_distributed,
+    is_main_process,
+    barrier,
+    distributed_device_map,
+    get_world_size,
+    maybe_wrap_data_parallel,
+    unwrap_model,
 )
 
 LOGGER = setup_logger("borea")
@@ -396,6 +404,8 @@ def train_lora_and_save(
 
     LOGGER.info("[LoRA] wrapping base model...")
     peft_model = get_peft_model(base_model, lora_cfg)
+    # torchrun を使わない python 実行時に複数GPUがある場合は DataParallel で自動並列
+    peft_model = maybe_wrap_data_parallel(peft_model)
 
     # Collator で動的パディング＋ラベル作成（Causal LM）
     collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
@@ -419,6 +429,7 @@ def train_lora_and_save(
         bf16=use_bf16,
         learning_rate=2e-5,
         optim="adamw_torch",
+        ddp_find_unused_parameters=(get_world_size() > 1),
     )
 
     trainer = Trainer(
@@ -432,7 +443,7 @@ def train_lora_and_save(
     trainer.train()
 
     LOGGER.info("[LoRA] saving adapter...")
-    peft_model.save_pretrained(ft_output_dir)
+    unwrap_model(peft_model).save_pretrained(ft_output_dir)
     # トークナイザも一応保存（将来の再利用を容易に）
     try:
         tokenizer.save_pretrained(ft_output_dir)
@@ -477,7 +488,8 @@ def run_all_pipeline(args: argparse.Namespace) -> None:
 
     # 実行環境/デバイス
     dtype = select_dtype()
-    device_map = resolve_device_map(args.device)
+    init_distributed(LOGGER)
+    device_map = distributed_device_map(args.device)
     LOGGER.info(f"CUDA available: {torch.cuda.is_available()}")
     if torch.cuda.is_available():
         LOGGER.info(f"GPU: {torch.cuda.get_device_name(0)}")
@@ -493,9 +505,11 @@ def run_all_pipeline(args: argparse.Namespace) -> None:
     local_model_dir = args.local_model_dir or os.path.join("models", safe_id)
     ft_output_dir = args.ft_output_dir or os.path.join("models", f"{safe_id}-lora")
 
-    # モデルのローカル保存を確保
+    # モデルのローカル保存を確保（DDP: rank0のみダウンロードし同期）
     hf_token = get_hf_token(enable_transfer=True)
-    ensure_local_model_dir(args.model, local_model_dir, hf_token)
+    if is_main_process():
+        ensure_local_model_dir(args.model, local_model_dir, hf_token)
+    barrier()
 
     # ローカルモデルで軽い推論（動作確認）
     LOGGER.info(f"[phase] initial generation with local base model: {local_model_dir}")
@@ -592,7 +606,8 @@ def main():
 
     # 実行環境情報
     dtype = select_dtype()
-    device_map = resolve_device_map(args.device)
+    init_distributed(LOGGER)
+    device_map = distributed_device_map(args.device)
     LOGGER.info(f"CUDA available: {torch.cuda.is_available()}")
     if torch.cuda.is_available():
         LOGGER.info(f"GPU: {torch.cuda.get_device_name(0)}")

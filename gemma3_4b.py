@@ -11,7 +11,7 @@ Gemma 系（Gemma-2 / Gemma-3）をローカルPython環境で実行するスク
 実行コマンド（カレントが src/WeatherLLM の想定）
 ```shell
 # 1コマンドで一連の処理（GPU, 自動スキップ対応）
-notify-run wsl-ubuntu -- nohup python gemma3_4b.py --run-all --device cuda --max-new-tokens 64 --epochs 1 --batch-size 1 --tag lora_all > gemma3_4b.log 2>&1 &
+notify-run via-tml2 -- nohup python gemma3_4b.py --run-all --device cuda --max-new-tokens 2048 --epochs 10 --batch-size 2 --tag lora_all > gemma3_4b.log 2>&1 &
 ```
 """
 
@@ -57,6 +57,14 @@ from llm_utils import (
     save_text,
     save_json,
     safe_model_dirname,
+    # DDP helpers
+    init_distributed,
+    distributed_device_map,
+    get_world_size,
+    is_main_process,
+    barrier,
+    maybe_wrap_data_parallel,
+    unwrap_model,
 )
 
 LOGGER = setup_logger("gemma")
@@ -78,17 +86,31 @@ def resolve_torch_dtype(arg: str) -> torch.dtype:
 
 
 def build_messages_for_text(prompt: str) -> List[Dict[str, Any]]:
-    # テキストのみの標準的な chat_template 用メッセージ
+    """
+    Gemma-2用のメッセージを構築。
+    systemロールをサポートしていないため、userロールのみを使用。
+    システムの指示はユーザープロンプトに統合。
+    """
+    # 方法1: シンプルにuserロールのみ使用
     return [
-        {"role": "system", "content": "あなたは親切なAIアシスタントです。日本語で丁寧に回答してください。"},
         {"role": "user", "content": prompt},
     ]
+    
+    # 方法2: システムの指示をユーザープロンプトに統合する場合
+    # system_instruction = "あなたは親切なAIアシスタントです。日本語で丁寧に回答してください。"
+    # combined_prompt = f"{system_instruction}\n\n{prompt}"
+    # return [
+    #     {"role": "user", "content": combined_prompt},
+    # ]
 
 
 def build_gemma3_chat_for_text(prompt: str) -> List[Dict[str, Any]]:
-    # Gemma-3 はマルチモーダル形式。ここではテキストのみの content を作成
+    """
+    Gemma-3用のメッセージを構築。
+    Gemma-3もsystemロールに対応していない可能性があるため、userロールのみ使用。
+    """
+    # systemロールを削除し、userロールのみを使用
     return [
-        {"role": "system", "content": [{"type": "text", "text": "あなたは親切なAIアシスタントです。日本語で丁寧に回答してください。"}]},
         {"role": "user", "content": [{"type": "text", "text": prompt}]},
     ]
 
@@ -272,6 +294,8 @@ def train_lora_and_save_gemma2(
 
     LOGGER.info("[LoRA] wrapping base model...")
     peft_model = get_peft_model(base_model, lora_cfg)
+    # python 単発実行でも複数GPUがある場合は DataParallel で自動並列
+    peft_model = maybe_wrap_data_parallel(peft_model)
 
     collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
     os.makedirs(ft_output_dir, exist_ok=True)
@@ -293,6 +317,7 @@ def train_lora_and_save_gemma2(
         bf16=use_bf16,
         learning_rate=2e-5,
         optim="adamw_torch",
+        ddp_find_unused_parameters=(get_world_size() > 1),
     )
 
     trainer = Trainer(
@@ -306,7 +331,7 @@ def train_lora_and_save_gemma2(
     trainer.train()
 
     LOGGER.info("[LoRA] saving adapter...")
-    peft_model.save_pretrained(ft_output_dir)
+    unwrap_model(peft_model).save_pretrained(ft_output_dir)
     try:
         tokenizer.save_pretrained(ft_output_dir)
     except Exception:
@@ -354,7 +379,8 @@ def run_all_pipeline(args: argparse.Namespace) -> None:
     save_json(os.path.join(out_dir, "run_args.json"), vars(args))
 
     dtype = resolve_torch_dtype(args.dtype)
-    device_map = resolve_device_map(args.device)
+    init_distributed(LOGGER)
+    device_map = distributed_device_map(args.device)
     LOGGER.info(f"CUDA available: {torch.cuda.is_available()}")
     if torch.cuda.is_available():
         LOGGER.info(f"GPU: {torch.cuda.get_device_name(0)}")
@@ -368,8 +394,10 @@ def run_all_pipeline(args: argparse.Namespace) -> None:
     local_model_dir = args.local_model_dir or os.path.join("models", safe_id)
     ft_output_dir = args.ft_output_dir or os.path.join("models", f"{safe_id}-lora")
 
-    # モデルのローカル保存を確保
-    ensure_local_model_dir(args.model, local_model_dir, hf_token)
+    # モデルのローカル保存を確保（DDP: rank0のみダウンロードし同期）
+    if is_main_process():
+        ensure_local_model_dir(args.model, local_model_dir, hf_token)
+    barrier()
 
     if is_gemma3_model_id(args.model):
         LOGGER.info("Detected Gemma-3 model id. LoRA学習はスキップし、推論のみ実施します（テキストのみ）。")
@@ -443,7 +471,8 @@ def main():
     save_json(os.path.join(out_dir, "run_args.json"), vars(args))
 
     dtype = resolve_torch_dtype(args.dtype)
-    device_map = resolve_device_map(args.device)
+    init_distributed(LOGGER)
+    device_map = distributed_device_map(args.device)
     LOGGER.info(f"CUDA available: {torch.cuda.is_available()}")
     if torch.cuda.is_available():
         LOGGER.info(f"GPU: {torch.cuda.get_device_name(0)}")

@@ -59,6 +59,8 @@
   - meta-llama/Meta-Llama-3-8B-Instruct。`--run-all` でダウンロード→軽い推論→QLoRA→推論
 - gemma3_4b.py
   - google/gemma-2-2b-jpn-it（Gemma-2）を既定。`--run-all` は Gemma-2 で LoRA 学習、Gemma-3 は推論のみ（テキストのみ）
+- gpt_oss.py
+  - openai/gpt-oss-20b と openai/gpt-oss-120b を対象。`--run-all` で 20B は QLoRA（4bit）学習、120B は推論のみ（80GB級GPUが推奨）
 - outputs/（自動生成）
   - 各スクリプトの実行成果物を保存
 - models/（自動生成）
@@ -141,6 +143,25 @@ tail -f gemma3_4b.log
   - ベース保存: `models/google_gemma-3-4b-it/`
   - 生成物: `outputs/google_gemma-3-4b-it/<timestamp>/g3_run/`
   - 備考: 本スクリプトでは Gemma-3 は推論のみ（LoRA 学習は対象外）
+
+### 5) gpt-oss (20B/120B): ダウンロード→軽い推論→（20BのみQLoRA）→推論（1コマンド）
+```shell
+# 20B（QLoRA 学習を含む）
+notify-run wsl-ubuntu -- nohup python gpt_oss.py --run-all --model openai/gpt-oss-20b --device cuda --max-new-tokens 128 --epochs 1 --batch-size 1 --tag lora_all > gptoss_20b.log 2>&1 &
+tail -f gptoss_20b.log
+
+# メモリが厳しい場合（推論も4bit量子化）
+notify-run wsl-ubuntu -- nohup python gpt_oss.py --run-all --model openai/gpt-oss-20b --device cuda --use-4bit-inference --max-new-tokens 128 --epochs 1 --batch-size 1 --tag lora_all > gptoss_20b.log 2>&1 &
+tail -f gptoss_20b.log
+
+# 120B（推論のみ。80GB級GPU推奨）
+notify-run wsl-ubuntu -- nohup python gpt_oss.py --run-all --model openai/gpt-oss-120b --device cuda --max-new-tokens 128 --tag gptoss_120b > gptoss_120b.log 2>&1 &
+tail -f gptoss_120b.log
+```
+- ベース保存: `models/openai_gpt-oss-20b/` または `models/openai_gpt-oss-120b/`
+- LoRA 保存: `models/openai_gpt-oss-20b-lora/`（20B のみ）
+- 生成物: `outputs/openai_gpt-oss-20b/<timestamp>/lora_all/` など
+- 備考: Harmony 形式の chat_template を自動適用。`HF_TOKEN` の設定が必要。120B は学習スキップ。
 
 ---
 

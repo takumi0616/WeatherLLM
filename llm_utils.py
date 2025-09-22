@@ -124,3 +124,141 @@ def save_json(path: str, obj: Any) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(obj, f, ensure_ascii=False, indent=2)
+
+
+# ===== Distributed (DDP) helpers =====
+
+def get_env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, default))
+    except Exception:
+        return default
+
+
+def is_dist_available() -> bool:
+    try:
+        import torch.distributed as dist  # type: ignore
+        return dist.is_available()
+    except Exception:
+        return False
+
+
+def is_dist_initialized() -> bool:
+    if not is_dist_available():
+        return False
+    try:
+        import torch.distributed as dist  # type: ignore
+        return dist.is_initialized()
+    except Exception:
+        return False
+
+
+def get_local_rank() -> int:
+    return get_env_int("LOCAL_RANK", 0)
+
+
+def get_rank() -> int:
+    return get_env_int("RANK", 0)
+
+
+def get_world_size() -> int:
+    return get_env_int("WORLD_SIZE", 1)
+
+
+def is_main_process() -> bool:
+    return get_rank() == 0
+
+
+def init_distributed(logger: Optional[logging.Logger] = None, backend: Optional[str] = None) -> bool:
+    """
+    torchrun 等で LOCAL_RANK/RANK/WORLD_SIZE が設定されている場合に限り初期化。
+    それ以外は何もしない（単GPU/単プロセス動作）。
+    """
+    if not is_dist_available():
+        return False
+
+    # 環境変数がなければ DDP 初期化は行わない
+    if "LOCAL_RANK" not in os.environ and "RANK" not in os.environ and "WORLD_SIZE" not in os.environ:
+        return False
+
+    if is_dist_initialized():
+        return True
+
+    try:
+        import torch.distributed as dist  # type: ignore
+        if backend is None:
+            backend = "nccl" if torch.cuda.is_available() else "gloo"
+
+        local_rank = get_local_rank()
+        if torch.cuda.is_available():
+            try:
+                torch.cuda.set_device(local_rank)
+            except Exception:
+                pass
+
+        dist.init_process_group(backend=backend)
+        if logger and is_main_process():
+            logger.info(f"Initialized distributed process group (backend={backend}, world_size={get_world_size()}, rank={get_rank()}, local_rank={local_rank})")
+        return True
+    except Exception as e:
+        if logger:
+            logger.warning(f"Distributed init skipped/failed: {e}")
+        return False
+
+
+def barrier() -> None:
+    if is_dist_initialized():
+        try:
+            import torch.distributed as dist  # type: ignore
+            dist.barrier()
+        except Exception:
+            pass
+
+
+def distributed_device_map(device_arg: str) -> Any:
+    """
+    DDP 初期化済みなら各プロセスを単一GPUに固定。
+    それ以外は以下の方針:
+      - 複数GPUが見つかり、device_arg が 'auto' または 'cuda' の場合は 'auto'（自動シャーディング）を返す
+      - それ以外は従来の device_map 解決を使用
+    """
+    if is_dist_initialized() and torch.cuda.is_available():
+        return f"cuda:{get_local_rank()}"
+    if torch.cuda.is_available():
+        try:
+            if torch.cuda.device_count() > 1 and device_arg in ("auto", "cuda"):
+                return "auto"
+        except Exception:
+            pass
+    return resolve_device_map(device_arg)
+
+
+# ===== Single-process multi-GPU (DataParallel) helpers =====
+
+def is_multi_gpu() -> bool:
+    try:
+        return torch.cuda.is_available() and torch.cuda.device_count() > 1
+    except Exception:
+        return False
+
+
+def maybe_wrap_data_parallel(model: Any) -> Any:
+    """
+    torchrun / DDP を使わずに python 単発実行でも複数GPUを使いたい場合のフォールバック。
+    - DDP 未初期化かつ 複数GPU のときに限り DataParallel でラップする
+    - それ以外はそのまま返す
+    注意:
+      - DataParallel は単一プロセス内のデータ並列。巨大モデルのモデル並列は device_map='auto' を推奨（推論時）。
+      - 学習速度 / 挙動はDDPより劣ることがあるため、より厳密な分散学習には torchrun を推奨。
+    """
+    if not is_dist_initialized() and is_multi_gpu():
+        try:
+            return torch.nn.DataParallel(model)
+        except Exception:
+            return model
+    return model
+
+
+def unwrap_model(model: Any) -> Any:
+    """DataParallel 等でラップされている場合に元のモジュールを返す"""
+    return getattr(model, "module", model)
