@@ -71,10 +71,6 @@ NUMERIC_DIR = PROGRAM_DIR / "data" / "Numerical_weather_data"
 ORIGINAL_DIR = PROGRAM_DIR / "data" / "original_comment"
 RESULTS_DIR = PROGRAM_DIR / "results"
 
-# For importing src/WeatherLLM/llava.py when needed
-WEATHERLLM_DIR = PROGRAM_DIR.parent
-if str(WEATHERLLM_DIR) not in sys.path:
-    sys.path.insert(0, str(WEATHERLLM_DIR))
 
 
 def find_env_path() -> Path:
@@ -422,255 +418,119 @@ def run_one(pipeline: str, date: str, env_file: Optional[str], api_key_arg: Opti
     if weather_data_path:
         print(f"気象データ: {weather_data_path.name}")
 
-    backend = getattr(CFG, "MODEL_BACKEND", "openai")
-    data: Dict[str, object] = {}
-    result: Optional[str] = None
+    backends = list(getattr(CFG, "MODEL_BACKENDS", [getattr(CFG, "MODEL_BACKEND", "openai")]))
+    overall_ok = True
+    for backend in backends:
+        print(f"\n[backend] {backend}")
+        run_dir_b = run_dir / backend
+        run_dir_b.mkdir(parents=True, exist_ok=True)
 
-    if backend == "openai":
-        # OpenAI Responses API (multimodal)
-        base64_image = encode_image_to_base64(image_path)
-        client = OpenAI(api_key=api_key)
-        try:
-            response = client.responses.create(
-                model=getattr(CFG, "OPENAI_MODEL", "gpt-4.1"),
-                input=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "input_text", "text": text},
-                            {"type": "input_image", "image_url": f"data:image/png;base64,{base64_image}"},
-                        ],
-                    }
-                ],
-            )
-        except Exception as e:
-            print(f"OpenAI API呼び出しで例外: {e}")
-            raise
+        data: Dict[str, object] = {}
+        result: Optional[str] = None
 
-        # Format response
+        # モデル呼び出しを llm.py に集約
         try:
-            data = response.model_dump()
+            from . import llm as LLM
         except Exception:
-            try:
-                data = json.loads(response.model_dump_json())
-            except Exception:
-                data = {"raw": str(response)}
+            import llm as LLM  # type: ignore
 
-        print("\nレスポンス情報(json, 抜粋):")
-        slim = {k: data.get(k) for k in ("id", "model", "usage") if k in data}
-        print(json.dumps(slim, ensure_ascii=False, indent=2))
-
-        result = getattr(response, "output_text", None)
-        if result is None:
-            try:
-                result = "".join(part.get("text", "") for part in data.get("output", []) if isinstance(part, dict))
-            except Exception:
-                result = ""
-    elif backend == "llava":
-        # Local LLaVA backend
-        print("\n[backend] LLaVA ローカルモデルで実行します")
+        result, info = LLM.generate(
+            backend=backend,
+            text=text,
+            image_path=image_path,
+            run_dir=run_dir_b,
+            api_key=api_key,
+        )
+        data = info
         try:
-            import torch  # lazy import
-            from llava import load_llava_from_local, run_llava_generate, load_image as llava_load_image
-        except Exception as e:
-            raise RuntimeError(f"LLaVA モジュールのインポートに失敗しました: {e}")
-
-        # Tweak CUDA allocator to reduce fragmentation
-        os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-
-        # dtype / device_map (prefer fp16 on GPU to save memory)
-        dtype = torch.float16 if torch.cuda.is_available() else torch.float32
-        device_opt = getattr(CFG, "LLAVA_DEVICE", "auto")
-        device_map = "auto" if device_opt == "auto" else device_opt
-
-        local_dir = getattr(CFG, "LLAVA_LOCAL_DIR", None) or getattr(CFG, "LLAVA_MODEL_ID", "llava-hf/llava-1.5-7b-hf")
-        use_4bit = bool(getattr(CFG, "LLAVA_USE_4BIT_INFERENCE", False))
-
-        # Load image (PIL)
-        image = llava_load_image(str(image_path))
-
-        # Helper: load+generate once (for retries)
-        def _load_and_generate(use4: bool, devmap, dt):
-            model, processor = load_llava_from_local(
-                local_dir=local_dir,
-                device_map=devmap,
-                dtype=dt,
-                hf_token=None,
-                use_4bit_inference=use4,
-            )
-            return run_llava_generate(
-                model=model,
-                processor=processor,
-                image=image,
-                prompt=text,
-                max_new_tokens=int(getattr(CFG, "LLAVA_MAX_NEW_TOKENS", 256)),
-                temperature=float(getattr(CFG, "LLAVA_TEMPERATURE", 0.7)),
-                top_p=float(getattr(CFG, "LLAVA_TOP_P", 0.95)),
-                top_k=int(getattr(CFG, "LLAVA_TOP_K", 50)),
-                dtype=dt,
-            )
-
-        # Try normal, then 4-bit on GPU, then CPU fallback
-        try:
-            result = _load_and_generate(use_4bit, device_map, dtype)
-        except torch.cuda.OutOfMemoryError as _oom1:
-            print("[backend] OOM detected -> retry with 4-bit quantization on GPU")
-            try:
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                result = _load_and_generate(True, "auto", torch.float16)
-                use_4bit = True
-                device_map = "auto"
-                dtype = torch.float16
-            except Exception as _e2:
-                print("[backend] Retry on GPU failed -> fallback to CPU")
-                try:
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                    result = _load_and_generate(True, "cpu", torch.float32)
-                    use_4bit = True
-                    device_map = "cpu"
-                    dtype = torch.float32
-                except Exception as _e3:
-                    raise _e3
-
-        # Save/Link model into run_dir to keep provenance
-        try:
-            model_dst = run_dir / "model"
-            # Prefer symlink to avoid GBs of copy
-            if model_dst.exists():
-                if model_dst.is_symlink():
-                    pass
-                else:
-                    shutil.rmtree(model_dst)
-            if not model_dst.exists():
-                try:
-                    os.symlink(os.path.abspath(local_dir), model_dst, target_is_directory=True)
-                except Exception:
-                    # Fallback: copy lightweight metadata only
-                    model_dst.mkdir(parents=True, exist_ok=True)
-                    for fname in ("config.json", "generation_config.json", "tokenizer_config.json", "special_tokens_map.json", "processor_config.json"):
-                        srcf = Path(local_dir) / fname
-                        if srcf.exists():
-                            shutil.copy2(srcf, model_dst / fname)
-        except Exception as e:
-            print(f"[warn] モデル保存/リンクに失敗: {e}")
-
-        # Minimal metadata for JSON output
-        data = {
-            "backend": "llava",
-            "model": local_dir,
-            "params": {
-                "max_new_tokens": getattr(CFG, "LLAVA_MAX_NEW_TOKENS", 256),
-                "temperature": getattr(CFG, "LLAVA_TEMPERATURE", 0.7),
-                "top_p": getattr(CFG, "LLAVA_TOP_P", 0.95),
-                "top_k": getattr(CFG, "LLAVA_TOP_K", 50),
-                "use_4bit": use_4bit,
-                "device_map": device_map,
-                "dtype": str(dtype),
-            },
-            "run_dir": str(run_dir),
-        }
-
-        print("\nレスポンス情報(json, 抜粋):")
-        print(json.dumps({"backend": "llava", "model": local_dir}, ensure_ascii=False, indent=2))
-    else:
-        raise ValueError(f"Unknown MODEL_BACKEND in config.py: {backend}")
-
-    print("\n----- 生成結果 -----\n")
-    print(result or "")
-
-    # Evaluate versus original_comment if available
-    metrics: Dict[str, object] = {}
-    if bool(getattr(CFG, "ENABLE_EVALUATION", True)):
-        orig_path = ORIGINAL_DIR / f"{y:04d}_{m:02d}_{d:02d}_original.txt"
-        if orig_path.exists():
-            try:
-                original_text = read_text_file(orig_path).strip()
-                ref_tokens = normalize_tokens(tokenize_ja(original_text))
-                hyp_tokens = normalize_tokens(tokenize_ja(result or ""))
-
-                # Embedding cosine similarity (optional)
-                if getattr(CFG, "EVAL_EMBEDDINGS", "openai") == "openai":
-                    try:
-                        client_emb = OpenAI(api_key=api_key) if backend != "openai" else OpenAI(api_key=api_key)
-                        emb_model = getattr(CFG, "OPENAI_EMBEDDING_MODEL", "text-embedding-3-large")
-                        emb_ref = client_emb.embeddings.create(model=emb_model, input=original_text).data[0].embedding
-                        emb_hyp = client_emb.embeddings.create(model=emb_model, input=(result or "")).data[0].embedding
-                        metrics["embedding_cosine"] = cosine_similarity(emb_ref, emb_hyp)
-                    except Exception as e:
-                        metrics["embedding_cosine_error"] = str(e)
-
-                # BLEU and ROUGE-1 (F1) with char-level fallback
-                metrics["bleu"] = calc_bleu(ref_tokens, hyp_tokens)
-                r1 = calc_rouge1_f1(ref_tokens, hyp_tokens)
-                if r1 == 0.0:
-                    r1 = char_level_f1(original_text, result or "")
-                metrics["rouge1_f1"] = r1
-
-                print("\n--- 比較対象 ---")
-                print("[original_comment]\n" + original_text)
-                print("\n[generated]\n" + (result or ""))
-                print("\n--- 評価結果 ---")
-                if "embedding_cosine" in metrics:
-                    print(f"Embedding cosine: {metrics['embedding_cosine']:.6f}")
-                elif "embedding_cosine_error" in metrics:
-                    print(f"Embedding cosine: エラー ({metrics.get('embedding_cosine_error')})")
-                print(f"BLEU: {metrics.get('bleu', 0.0):.6f}")
-                print(f"ROUGE-1 F1: {metrics.get('rouge1_f1', 0.0):.6f}")
-            except Exception as e:
-                metrics["error"] = f"評価に失敗: {e}"
-                print(metrics["error"])
-        else:
-            print(f"original_comment が見つかりません: {orig_path}")
-    else:
-        print("評価をスキップしました（config.py ENABLE_EVALUATION=False）")
-
-    # Save results (directory-based + legacy compatibility)
-    out_text = run_dir / "result.txt"
-    out_json = run_dir / "response.json"
-    try:
-        # Write outputs
-        out_text.write_text(result or "", encoding="utf-8")
-        out_json.write_text(json.dumps({"response": data, "metrics": metrics}, ensure_ascii=False, indent=2), encoding="utf-8")
-
-        # Save model info (backend + model)
-        try:
-            model_info_path = run_dir / "model_info.txt"
-            if backend == "openai":
-                model_info_path.write_text(
-                    f"backend=openai\nmodel={getattr(CFG, 'OPENAI_MODEL', 'gpt-4.1')}\n",
-                    encoding="utf-8",
-                )
-            else:
-                model_info_path.write_text(
-                    f"backend=llava\nmodel_id={local_dir}\ndevice_map={device_map}\nuse_4bit={use_4bit}\n",
-                    encoding="utf-8",
-                )
-        except Exception as e:
-            print(f"[warn] モデル情報の保存に失敗: {e}")
-
-        # Legacy filenames for backward-compat
-        out_text_legacy = RESULTS_DIR / f"{base_name}_result.txt"
-        out_json_legacy = RESULTS_DIR / f"{base_name}_response.json"
-        try:
-            shutil.copy2(out_text, out_text_legacy)
-            shutil.copy2(out_json, out_json_legacy)
+            print("\nレスポンス情報(json, 抜粋):")
+            print(json.dumps({"backend": info.get("backend"), "model": info.get("model")}, ensure_ascii=False, indent=2))
         except Exception:
-            # Best-effort; ignore if copy fails
             pass
 
-        print(f"\n保存先: {out_text}\nJSON: {out_json}\nレガシー: {out_text_legacy}, {out_json_legacy}")
-    except Exception as e:
-        print(f"結果保存に失敗: {e}")
+        print("\n----- 生成結果 -----\n")
+        print(result or "")
 
-    return 0
+        # Evaluate versus original_comment if available
+        metrics: Dict[str, object] = {}
+        if bool(getattr(CFG, "ENABLE_EVALUATION", True)):
+            orig_path = ORIGINAL_DIR / f"{y:04d}_{m:02d}_{d:02d}_original.txt"
+            if orig_path.exists():
+                try:
+                    original_text = read_text_file(orig_path).strip()
+                    ref_tokens = normalize_tokens(tokenize_ja(original_text))
+                    hyp_tokens = normalize_tokens(tokenize_ja(result or ""))
+
+                    # Embedding cosine similarity (optional)
+                    if getattr(CFG, "EVAL_EMBEDDINGS", "openai") == "openai":
+                        try:
+                            client_emb = OpenAI(api_key=api_key)
+                            emb_model = getattr(CFG, "OPENAI_EMBEDDING_MODEL", "text-embedding-3-large")
+                            emb_ref = client_emb.embeddings.create(model=emb_model, input=original_text).data[0].embedding
+                            emb_hyp = client_emb.embeddings.create(model=emb_model, input=(result or "")).data[0].embedding
+                            metrics["embedding_cosine"] = cosine_similarity(emb_ref, emb_hyp)
+                        except Exception as e:
+                            metrics["embedding_cosine_error"] = str(e)
+
+                    # BLEU and ROUGE-1 (F1) with char-level fallback
+                    metrics["bleu"] = calc_bleu(ref_tokens, hyp_tokens)
+                    r1 = calc_rouge1_f1(ref_tokens, hyp_tokens)
+                    if r1 == 0.0:
+                        r1 = char_level_f1(original_text, result or "")
+                    metrics["rouge1_f1"] = r1
+
+                    print("\n--- 比較対象 ---")
+                    print("[original_comment]\n" + original_text)
+                    print("\n[generated]\n" + (result or ""))
+                    print("\n--- 評価結果 ---")
+                    if "embedding_cosine" in metrics:
+                        print(f"Embedding cosine: {metrics['embedding_cosine']:.6f}")
+                    elif "embedding_cosine_error" in metrics:
+                        print(f"Embedding cosine: エラー ({metrics.get('embedding_cosine_error')})")
+                    print(f"BLEU: {metrics.get('bleu', 0.0):.6f}")
+                    print(f"ROUGE-1 F1: {metrics.get('rouge1_f1', 0.0):.6f}")
+                except Exception as e:
+                    metrics["error"] = f"評価に失敗: {e}"
+                    print(metrics["error"])
+            else:
+                print(f"original_comment が見つかりません: {orig_path}")
+        else:
+            print("評価をスキップしました（config.py ENABLE_EVALUATION=False）")
+
+        # Save results (directory-based per-backend)
+        out_text = run_dir_b / "result.txt"
+        out_json = run_dir_b / "response.json"
+        try:
+            # Write outputs
+            out_text.write_text(result or "", encoding="utf-8")
+            out_json.write_text(json.dumps({"response": data, "metrics": metrics}, ensure_ascii=False, indent=2), encoding="utf-8")
+
+            # Save model info (backend + model)
+            try:
+                model_info_path = run_dir_b / "model_info.txt"
+                backend_name = (data.get("backend") if isinstance(data, dict) else None) or backend
+                model_name = (data.get("model") if isinstance(data, dict) else None) or ""
+                lines = [f"backend={backend_name}", f"model={model_name}"]
+                params = (data.get("params") if isinstance(data, dict) else None) or {}
+                if isinstance(params, dict):
+                    for k, v in params.items():
+                        lines.append(f"{k}={v}")
+                model_info_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            except Exception as e:
+                print(f"[warn] モデル情報の保存に失敗: {e}")
+
+            print(f"\n保存先: {out_text}\nJSON: {out_json}")
+        except Exception as e:
+            print(f"結果保存に失敗: {e}")
+            overall_ok = False
+
+    return 0 if overall_ok else 1
 
 
 def main():
     parser = argparse.ArgumentParser(description="Integrated WeatherLLM runner (v1..v4) with evaluation")
-    parser.add_argument("--pipeline", choices=["v1", "v2", "v3", "v4", "all"], default="v4",
-                        help="実行パイプライン (既定: v4)")
+    parser.add_argument("--pipeline", choices=["v1", "v2", "v3", "v4", "all"], default=None,
+                        help="実行パイプライン (既定: config.py の PIPELINE)")
     parser.add_argument("--date", action="append", help="対象日 (YYYYMMDD)。繰り返し指定可")
     parser.add_argument("--auto", action="store_true", help="--date未指定時に data/png から自動発見")
     parser.add_argument("--limit", type=int, help="自動発見する日付の上限数")
@@ -690,7 +550,7 @@ def main():
             print(f"[config] OpenAI model: {getattr(CFG, 'OPENAI_MODEL', 'gpt-4.1')}")
             if getattr(CFG, "ENABLE_EVALUATION", True) and getattr(CFG, "EVAL_EMBEDDINGS", "openai") == "openai":
                 print(f"[config] Embedding model: {getattr(CFG, 'OPENAI_EMBEDDING_MODEL', 'text-embedding-3-large')}")
-        else:
+        elif backend == "llava":
             print(f"[config] LLaVA model_id/local_dir: {getattr(CFG, 'LLAVA_MODEL_ID', None)} / {getattr(CFG, 'LLAVA_LOCAL_DIR', None)}")
             print(
                 "[config] "
@@ -700,6 +560,21 @@ def main():
                 f"T={getattr(CFG, 'LLAVA_TEMPERATURE', 0.7)} "
                 f"top_p={getattr(CFG, 'LLAVA_TOP_P', 0.95)} "
                 f"top_k={getattr(CFG, 'LLAVA_TOP_K', 50)}"
+            )
+        elif backend in ("qwen", "qwen3b", "qwen7b", "hf"):
+            # QWEN3B / QWEN7B の表示（"qwen"/"hf" は既定を QWEN3B として表示）
+            pref = "QWEN7B" if backend == "qwen7b" else "QWEN3B"
+            resolved_mid = getattr(CFG, f"{pref}_MODEL_ID", None)
+            print(f"[config] QWEN model_id: {resolved_mid}")
+            print(
+                "[config] "
+                f"4bit={getattr(CFG, f'{pref}_USE_4BIT_INFERENCE', True)} "
+                f"min_pixels={getattr(CFG, f'{pref}_MIN_PIXELS', 256*28*28)} "
+                f"max_pixels={getattr(CFG, f'{pref}_MAX_PIXELS', 896*28*28)} "
+                f"max_new_tokens={getattr(CFG, f'{pref}_MAX_NEW_TOKENS', 256)} "
+                f"T={getattr(CFG, f'{pref}_TEMPERATURE', 0.7)} "
+                f"top_p={getattr(CFG, f'{pref}_TOP_P', 0.95)} "
+                f"top_k={getattr(CFG, f'{pref}_TOP_K', 50)}"
             )
     except Exception:
         pass
@@ -723,7 +598,8 @@ def main():
         sys.exit(2)
 
     # Pipelines
-    pipelines = ["v1", "v2", "v3", "v4"] if args.pipeline == "all" else [args.pipeline]
+    selected_pipeline = args.pipeline or getattr(CFG, "PIPELINE", "v4")
+    pipelines = ["v1", "v2", "v3", "v4"] if selected_pipeline == "all" else [selected_pipeline]
 
     # Run
     overall_codes: List[int] = []

@@ -6,8 +6,8 @@ WeatherLLM 統合ランナー用 設定ファイル（Python 版・見やすい�
 CLI の一部オプション（--pipeline, --date, --env-file, --api-key）は従来通り上書き可能です。
 
 バックエンド切替:
-- CFG["BACKEND"]["TYPE"] を "openai" | "llava" に設定
-- OpenAI 用の詳細は CFG["BACKEND"]["OPENAI"]、LLaVA 用の詳細は CFG["BACKEND"]["LLAVA"] にまとめています
+- CFG["BACKEND"]["TYPE"] を ["openai", "llava", "qwen3b", "qwen7b"] の中から1つ以上選択
+- 詳細設定はそれぞれ CFG["BACKEND"]["OPENAI"] / CFG["BACKEND"]["LLAVA"] / CFG["BACKEND"]["QWEN3B"] / CFG["BACKEND"]["QWEN7B"] に記載
 
 評価:
 - CFG["EVALUATION"]["ENABLE"] を True/False
@@ -25,8 +25,8 @@ PNG_DIR = BASE_DIR / "data" / "png"
 # ======================================
 CFG: dict = {
     # 実行パイプライン/対象日
-    "PIPELINE": "v4",      # "v1" | "v2" | "v3" | "v4" | "all"
-    "DATES": [],           # 例: ["20220101", "20220106"]（空なら AUTO_FROM_PNG が有効なら自動発見）
+    "PIPELINE": "v1",      # "v1" | "v2" | "v3" | "v4" | "all"
+    "DATES": ["20220101"],           # 例: ["20220101", "20220106"]（空なら AUTO_FROM_PNG が有効なら自動発見）
     "AUTO_FROM_PNG": True, # data/png/*.png から自動発見
     "AUTO_LIMIT": None,    # 先頭 N 件に制限（None なら制限なし）
 
@@ -45,7 +45,7 @@ CFG: dict = {
 
     # 生成バックエンド（GPT API or LLaVA）
     "BACKEND": {
-        "TYPE": "llava",  # "openai" | "llava"
+        "TYPE": ["llava", "qwen3b", "qwen7b"],  # ["openai", "llava", "qwen3b", "qwen7b"] から複数選択可（例: ["qwen3b", "llava"]）
 
         "OPENAI": {
             "MODEL": "gpt-4.1",
@@ -57,11 +57,35 @@ CFG: dict = {
             "LOCAL_DIR": None,                       # 既にローカルへ保存済みならパス指定可
             "DEVICE": "auto",                        # "auto" | "cpu" | "cuda"
             "USE_4BIT_INFERENCE": True,             # 4bit 量子化（bitsandbytes 必須）
-            "MAX_NEW_TOKENS": 256,
+            "MAX_NEW_TOKENS": 512,
             "TEMPERATURE": 0.7,
             "TOP_P": 0.95,
             "TOP_K": 50,
             "SEED": 0,
+        },
+        "QWEN3B": {
+            "MODEL_ID": "Qwen/Qwen2.5-VL-3B-Instruct",
+            "DTYPE": "auto",                  # "auto" | "bf16" | "fp16" | "fp32"
+            "USE_4BIT_INFERENCE": True,       # bitsandbytes が利用可能なら4bitを使用
+            "ENABLE_FLASH_ATTN": False,       # flash_attention_2（不可なら自動フォールバック）
+            "MIN_PIXELS": 256 * 28 * 28,      # VRAM節約のための入力画像サイズ下限
+            "MAX_PIXELS": 896 * 28 * 28,      # 上限（性能/VRAMのバランス）
+            "MAX_NEW_TOKENS": 512,
+            "TEMPERATURE": 0.7,
+            "TOP_P": 0.95,
+            "TOP_K": 50,
+        },
+        "QWEN7B": {
+            "MODEL_ID": "Qwen/Qwen2.5-VL-7B-Instruct",
+            "DTYPE": "auto",
+            "USE_4BIT_INFERENCE": True,
+            "ENABLE_FLASH_ATTN": False,
+            "MIN_PIXELS": 256 * 28 * 28,
+            "MAX_PIXELS": 896 * 28 * 28,
+            "MAX_NEW_TOKENS": 512,
+            "TEMPERATURE": 0.7,
+            "TOP_P": 0.95,
+            "TOP_K": 50,
         },
     },
 
@@ -94,7 +118,8 @@ TIMEOUT = CFG["RUN"]["TIMEOUT"]
 PARALLEL = CFG["RUN"]["PARALLEL"]
 
 # バックエンド
-MODEL_BACKEND = CFG["BACKEND"]["TYPE"]
+MODEL_BACKENDS = CFG["BACKEND"]["TYPE"] if isinstance(CFG["BACKEND"]["TYPE"], list) else [CFG["BACKEND"]["TYPE"]]
+MODEL_BACKEND = MODEL_BACKENDS[0] if MODEL_BACKENDS else "openai"
 
 # OpenAI
 OPENAI_MODEL = CFG["BACKEND"]["OPENAI"]["MODEL"]
@@ -110,6 +135,30 @@ LLAVA_TEMPERATURE = CFG["BACKEND"]["LLAVA"]["TEMPERATURE"]
 LLAVA_TOP_P = CFG["BACKEND"]["LLAVA"]["TOP_P"]
 LLAVA_TOP_K = CFG["BACKEND"]["LLAVA"]["TOP_K"]
 LLAVA_SEED = CFG["BACKEND"]["LLAVA"]["SEED"]
+
+# Qwen2.5-VL 3B
+QWEN3B_MODEL_ID = CFG["BACKEND"]["QWEN3B"]["MODEL_ID"]
+QWEN3B_DTYPE = CFG["BACKEND"]["QWEN3B"]["DTYPE"]
+QWEN3B_USE_4BIT_INFERENCE = CFG["BACKEND"]["QWEN3B"]["USE_4BIT_INFERENCE"]
+QWEN3B_ENABLE_FLASH_ATTN = CFG["BACKEND"]["QWEN3B"]["ENABLE_FLASH_ATTN"]
+QWEN3B_MIN_PIXELS = CFG["BACKEND"]["QWEN3B"]["MIN_PIXELS"]
+QWEN3B_MAX_PIXELS = CFG["BACKEND"]["QWEN3B"]["MAX_PIXELS"]
+QWEN3B_MAX_NEW_TOKENS = CFG["BACKEND"]["QWEN3B"]["MAX_NEW_TOKENS"]
+QWEN3B_TEMPERATURE = CFG["BACKEND"]["QWEN3B"]["TEMPERATURE"]
+QWEN3B_TOP_P = CFG["BACKEND"]["QWEN3B"]["TOP_P"]
+QWEN3B_TOP_K = CFG["BACKEND"]["QWEN3B"]["TOP_K"]
+
+# Qwen2.5-VL 7B
+QWEN7B_MODEL_ID = CFG["BACKEND"]["QWEN7B"]["MODEL_ID"]
+QWEN7B_DTYPE = CFG["BACKEND"]["QWEN7B"]["DTYPE"]
+QWEN7B_USE_4BIT_INFERENCE = CFG["BACKEND"]["QWEN7B"]["USE_4BIT_INFERENCE"]
+QWEN7B_ENABLE_FLASH_ATTN = CFG["BACKEND"]["QWEN7B"]["ENABLE_FLASH_ATTN"]
+QWEN7B_MIN_PIXELS = CFG["BACKEND"]["QWEN7B"]["MIN_PIXELS"]
+QWEN7B_MAX_PIXELS = CFG["BACKEND"]["QWEN7B"]["MAX_PIXELS"]
+QWEN7B_MAX_NEW_TOKENS = CFG["BACKEND"]["QWEN7B"]["MAX_NEW_TOKENS"]
+QWEN7B_TEMPERATURE = CFG["BACKEND"]["QWEN7B"]["TEMPERATURE"]
+QWEN7B_TOP_P = CFG["BACKEND"]["QWEN7B"]["TOP_P"]
+QWEN7B_TOP_K = CFG["BACKEND"]["QWEN7B"]["TOP_K"]
 
 # 評価
 ENABLE_EVALUATION = CFG["EVALUATION"]["ENABLE"]
@@ -133,6 +182,7 @@ def as_dict() -> dict:
         "PNG_DIR": str(PNG_DIR),
         # Backend/model config
         "MODEL_BACKEND": MODEL_BACKEND,
+        "MODEL_BACKENDS": MODEL_BACKENDS,
         "OPENAI_MODEL": OPENAI_MODEL,
         "OPENAI_EMBEDDING_MODEL": OPENAI_EMBEDDING_MODEL,
         "LLAVA_MODEL_ID": LLAVA_MODEL_ID,
@@ -144,6 +194,26 @@ def as_dict() -> dict:
         "LLAVA_TOP_P": LLAVA_TOP_P,
         "LLAVA_TOP_K": LLAVA_TOP_K,
         "LLAVA_SEED": LLAVA_SEED,
+        "QWEN3B_MODEL_ID": QWEN3B_MODEL_ID,
+        "QWEN3B_DTYPE": QWEN3B_DTYPE,
+        "QWEN3B_USE_4BIT_INFERENCE": QWEN3B_USE_4BIT_INFERENCE,
+        "QWEN3B_ENABLE_FLASH_ATTN": QWEN3B_ENABLE_FLASH_ATTN,
+        "QWEN3B_MIN_PIXELS": QWEN3B_MIN_PIXELS,
+        "QWEN3B_MAX_PIXELS": QWEN3B_MAX_PIXELS,
+        "QWEN3B_MAX_NEW_TOKENS": QWEN3B_MAX_NEW_TOKENS,
+        "QWEN3B_TEMPERATURE": QWEN3B_TEMPERATURE,
+        "QWEN3B_TOP_P": QWEN3B_TOP_P,
+        "QWEN3B_TOP_K": QWEN3B_TOP_K,
+        "QWEN7B_MODEL_ID": QWEN7B_MODEL_ID,
+        "QWEN7B_DTYPE": QWEN7B_DTYPE,
+        "QWEN7B_USE_4BIT_INFERENCE": QWEN7B_USE_4BIT_INFERENCE,
+        "QWEN7B_ENABLE_FLASH_ATTN": QWEN7B_ENABLE_FLASH_ATTN,
+        "QWEN7B_MIN_PIXELS": QWEN7B_MIN_PIXELS,
+        "QWEN7B_MAX_PIXELS": QWEN7B_MAX_PIXELS,
+        "QWEN7B_MAX_NEW_TOKENS": QWEN7B_MAX_NEW_TOKENS,
+        "QWEN7B_TEMPERATURE": QWEN7B_TEMPERATURE,
+        "QWEN7B_TOP_P": QWEN7B_TOP_P,
+        "QWEN7B_TOP_K": QWEN7B_TOP_K,
         "ENABLE_EVALUATION": ENABLE_EVALUATION,
         "EVAL_EMBEDDINGS": EVAL_EMBEDDINGS,
     }
@@ -158,10 +228,14 @@ __all__ = [
     # run
     "PYTHON_BIN", "LOG_TO_FILES", "ECHO_TO_STDOUT", "TIMEOUT", "PARALLEL",
     # backend
-    "MODEL_BACKEND",
+    "MODEL_BACKEND", "MODEL_BACKENDS",
     "OPENAI_MODEL", "OPENAI_EMBEDDING_MODEL",
     "LLAVA_MODEL_ID", "LLAVA_LOCAL_DIR", "LLAVA_DEVICE", "LLAVA_USE_4BIT_INFERENCE",
     "LLAVA_MAX_NEW_TOKENS", "LLAVA_TEMPERATURE", "LLAVA_TOP_P", "LLAVA_TOP_K", "LLAVA_SEED",
+    "QWEN3B_MODEL_ID", "QWEN3B_DTYPE", "QWEN3B_USE_4BIT_INFERENCE", "QWEN3B_ENABLE_FLASH_ATTN",
+    "QWEN3B_MIN_PIXELS", "QWEN3B_MAX_PIXELS", "QWEN3B_MAX_NEW_TOKENS", "QWEN3B_TEMPERATURE", "QWEN3B_TOP_P", "QWEN3B_TOP_K",
+    "QWEN7B_MODEL_ID", "QWEN7B_DTYPE", "QWEN7B_USE_4BIT_INFERENCE", "QWEN7B_ENABLE_FLASH_ATTN",
+    "QWEN7B_MIN_PIXELS", "QWEN7B_MAX_PIXELS", "QWEN7B_MAX_NEW_TOKENS", "QWEN7B_TEMPERATURE", "QWEN7B_TOP_P", "QWEN7B_TOP_K",
     # evaluation
     "ENABLE_EVALUATION", "EVAL_EMBEDDINGS",
     # helper

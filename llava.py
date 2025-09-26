@@ -45,6 +45,8 @@ from transformers import (
     AutoProcessor,
     LlavaForConditionalGeneration,
     AutoTokenizer,  # decode で使用する場合あり（processor からも可）
+    LogitsProcessorList,
+    LogitsProcessor,
 )
 
 # 4bit 量子化（任意）
@@ -78,6 +80,18 @@ from llm_utils import (
     is_main_process,
     barrier,
 )
+
+class SafeLogitsProcessor(LogitsProcessor):
+    """
+    生成時の数値不安定対策:
+    - logits の NaN/Inf を有限値へ置き換え
+    - 値の暴走を抑えるためクリッピング
+    """
+    def __call__(self, input_ids, scores):
+        if torch.isnan(scores).any() or torch.isinf(scores).any():
+            scores = torch.nan_to_num(scores, nan=0.0, posinf=50.0, neginf=-50.0)
+        scores = torch.clamp(scores, min=-50.0, max=50.0)
+        return scores
 
 LOGGER = setup_logger("llava")
 
@@ -240,15 +254,35 @@ def run_llava_generate(
         else:
             inputs[k] = v.to(device)
 
+    # VRAM削減: 生成時のKVキャッシュを無効化（速度は低下）
+    try:
+        model.generation_config.use_cache = False
+        model.config.use_cache = False
+    except Exception:
+        pass
+
+    # 安定化: pad/eos の未設定による即時終了を防止
+    try:
+        tok = getattr(processor, "tokenizer", None)
+        if tok is not None:
+            pad_id = tok.pad_token_id if tok.pad_token_id is not None else tok.eos_token_id
+            if pad_id is not None:
+                model.generation_config.pad_token_id = pad_id
+            if tok.eos_token_id is not None:
+                model.generation_config.eos_token_id = tok.eos_token_id
+    except Exception:
+        pass
+
     gen_kwargs = dict(
         max_new_tokens=max_new_tokens,
-        do_sample=True,
-        temperature=temperature,
-        top_p=top_p,
-        top_k=top_k,
+        min_new_tokens=20,  # 空出力回避のため最低生成長を確保
+        do_sample=False,  # multinomial回避で数値不安定対策（貪欲生成）
+        use_cache=False,
     )
+    # do_sample=False のため temperature/top_p/top_k は渡さない（Transformersの無効フラグ警告を抑止）
+    logits_processor = LogitsProcessorList([SafeLogitsProcessor()])
     with torch.inference_mode():
-        outputs = model.generate(**inputs, **gen_kwargs)
+        outputs = model.generate(**inputs, logits_processor=logits_processor, **gen_kwargs)
 
     # 生成テキスト抽出（入力部を除去して応答のみを decode）
     generated_ids = outputs[0]
@@ -269,6 +303,33 @@ def run_llava_generate(
     else:
         # 極力 tokenizer を使うが、無い場合は processor.decode で代替
         text = processor.decode(response_ids, skip_special_tokens=True)
+
+    # 生成テキストが空の場合は一度だけサンプリングで再試行（空レスポンス対策）
+    if not (text or "").strip():
+        try:
+            retry_kwargs = dict(
+                max_new_tokens=max(32, min(128, max_new_tokens)),
+                min_new_tokens=max(16, min(64, max_new_tokens)),
+                do_sample=True,
+                temperature=max(0.7, temperature),
+                top_p=0.95,
+                top_k=50,
+                use_cache=False,
+                no_repeat_ngram_size=3,
+            )
+            with torch.inference_mode():
+                outputs2 = model.generate(**inputs, logits_processor=logits_processor, **retry_kwargs)
+            gen2 = outputs2[0]
+            if input_len is not None and gen2.shape[0] >= input_len:
+                resp2 = gen2[input_len:]
+            else:
+                resp2 = gen2
+            if tokenizer is not None:
+                text = tokenizer.decode(resp2, skip_special_tokens=True)
+            else:
+                text = processor.decode(resp2, skip_special_tokens=True)
+        except Exception:
+            pass
 
     return text
 
