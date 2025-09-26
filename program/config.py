@@ -6,8 +6,10 @@ WeatherLLM 統合ランナー用 設定ファイル（Python 版・見やすい�
 CLI の一部オプション（--pipeline, --date, --env-file, --api-key）は従来通り上書き可能です。
 
 バックエンド切替:
-- CFG["BACKEND"]["TYPE"] を ["openai", "llava", "qwen3b", "qwen7b"] の中から1つ以上選択
-- 詳細設定はそれぞれ CFG["BACKEND"]["OPENAI"] / CFG["BACKEND"]["LLAVA"] / CFG["BACKEND"]["QWEN3B"] / CFG["BACKEND"]["QWEN7B"] に記載
+- CFG["BACKEND"]["TYPE"] を ["openai", "llava", "qwen3b", "qwen7b", "ovis", "r4b"] の中から1つ以上選択
+- 詳細設定はそれぞれ CFG["BACKEND"]["OPENAI"] / CFG["BACKEND"]["LLAVA"] /
+  CFG["BACKEND"]["QWEN3B"] / CFG["BACKEND"]["QWEN7B"] /
+  CFG["BACKEND"]["OVIS25"] / CFG["BACKEND"]["R4B"] に記載
 
 評価:
 - CFG["EVALUATION"]["ENABLE"] を True/False
@@ -45,24 +47,34 @@ CFG: dict = {
 
     # 生成バックエンド（GPT API or LLaVA）
     "BACKEND": {
-        "TYPE": ["llava", "qwen3b", "qwen7b"],  # ["openai", "llava", "qwen3b", "qwen7b"] から複数選択可（例: ["qwen3b", "llava"]）
+        # 複数選択可:
+        # - 選択肢: ["openai", "llava", "qwen3b", "qwen7b", "ovis", "r4b"]
+        # - 例1: ["qwen3b"]（既定）
+        # - 例2: ["qwen7b", "llava"]（Qwen7B と LLaVA を順に実行）
+        # - 例3: ["ovis", "r4b"]（Ovis→R-4B の順に実行）
+        # - 例4: ["openai"]（OpenAI Responses API を利用）
+        "TYPE": ["llava", "qwen3b", "qwen7b", "ovis", "r4b"],
 
+        # OpenAI GPT (multimodal via Responses API)
         "OPENAI": {
             "MODEL": "gpt-4.1",
             "EMBEDDING_MODEL": "text-embedding-3-large",  # 評価用
         },
 
+        # LLaVA (HF)
         "LLAVA": {
             "MODEL_ID": "llava-hf/llava-1.5-7b-hf",  # HF モデル ID or ローカルパス
             "LOCAL_DIR": None,                       # 既にローカルへ保存済みならパス指定可
             "DEVICE": "auto",                        # "auto" | "cpu" | "cuda"
             "USE_4BIT_INFERENCE": True,             # 4bit 量子化（bitsandbytes 必須）
-            "MAX_NEW_TOKENS": 512,
+            "MAX_NEW_TOKENS": 256,
             "TEMPERATURE": 0.7,
             "TOP_P": 0.95,
             "TOP_K": 50,
             "SEED": 0,
         },
+
+        # Qwen2.5-VL 3B
         "QWEN3B": {
             "MODEL_ID": "Qwen/Qwen2.5-VL-3B-Instruct",
             "DTYPE": "auto",                  # "auto" | "bf16" | "fp16" | "fp32"
@@ -70,11 +82,13 @@ CFG: dict = {
             "ENABLE_FLASH_ATTN": False,       # flash_attention_2（不可なら自動フォールバック）
             "MIN_PIXELS": 256 * 28 * 28,      # VRAM節約のための入力画像サイズ下限
             "MAX_PIXELS": 896 * 28 * 28,      # 上限（性能/VRAMのバランス）
-            "MAX_NEW_TOKENS": 512,
+            "MAX_NEW_TOKENS": 256,
             "TEMPERATURE": 0.7,
             "TOP_P": 0.95,
             "TOP_K": 50,
         },
+
+        # Qwen2.5-VL 7B
         "QWEN7B": {
             "MODEL_ID": "Qwen/Qwen2.5-VL-7B-Instruct",
             "DTYPE": "auto",
@@ -82,7 +96,35 @@ CFG: dict = {
             "ENABLE_FLASH_ATTN": False,
             "MIN_PIXELS": 256 * 28 * 28,
             "MAX_PIXELS": 896 * 28 * 28,
-            "MAX_NEW_TOKENS": 512,
+            "MAX_NEW_TOKENS": 256,
+            "TEMPERATURE": 0.7,
+            "TOP_P": 0.95,
+            "TOP_K": 50,
+        },
+
+
+        # Ovis2.5-9B
+        "OVIS25": {
+            "MODEL_ID": "AIDC-AI/Ovis2.5-9B",
+            "DTYPE": "auto",
+            "USE_4BIT_INFERENCE": True,
+            "ENABLE_FLASH_ATTN": False,
+            "ENABLE_THINKING": False,
+            "ENABLE_THINKING_BUDGET": False,
+            "THINKING_BUDGET": 2048,  # 有効時のみ使用
+            "MAX_NEW_TOKENS": 1024,
+            "TEMPERATURE": 0.7,
+            "TOP_P": 0.95,
+            "TOP_K": 50,
+        },
+
+        # YannQi/R-4B
+        "R4B": {
+            "MODEL_ID": "YannQi/R-4B",
+            "DTYPE": "auto",
+            "USE_4BIT_INFERENCE": True,
+            "THINKING_MODE": "auto",     # "auto" | "long"(thinking) | "short"(non-thinking)
+            "MAX_NEW_TOKENS": 2048,
             "TEMPERATURE": 0.7,
             "TOP_P": 0.95,
             "TOP_K": 50,
@@ -160,6 +202,30 @@ QWEN7B_TEMPERATURE = CFG["BACKEND"]["QWEN7B"]["TEMPERATURE"]
 QWEN7B_TOP_P = CFG["BACKEND"]["QWEN7B"]["TOP_P"]
 QWEN7B_TOP_K = CFG["BACKEND"]["QWEN7B"]["TOP_K"]
 
+
+# Ovis2.5-9B
+OVIS25_MODEL_ID = CFG["BACKEND"]["OVIS25"]["MODEL_ID"]
+OVIS25_DTYPE = CFG["BACKEND"]["OVIS25"]["DTYPE"]
+OVIS25_USE_4BIT_INFERENCE = CFG["BACKEND"]["OVIS25"]["USE_4BIT_INFERENCE"]
+OVIS25_ENABLE_FLASH_ATTN = CFG["BACKEND"]["OVIS25"]["ENABLE_FLASH_ATTN"]
+OVIS25_ENABLE_THINKING = CFG["BACKEND"]["OVIS25"]["ENABLE_THINKING"]
+OVIS25_ENABLE_THINKING_BUDGET = CFG["BACKEND"]["OVIS25"]["ENABLE_THINKING_BUDGET"]
+OVIS25_THINKING_BUDGET = CFG["BACKEND"]["OVIS25"]["THINKING_BUDGET"]
+OVIS25_MAX_NEW_TOKENS = CFG["BACKEND"]["OVIS25"]["MAX_NEW_TOKENS"]
+OVIS25_TEMPERATURE = CFG["BACKEND"]["OVIS25"]["TEMPERATURE"]
+OVIS25_TOP_P = CFG["BACKEND"]["OVIS25"]["TOP_P"]
+OVIS25_TOP_K = CFG["BACKEND"]["OVIS25"]["TOP_K"]
+
+# R-4B
+R4B_MODEL_ID = CFG["BACKEND"]["R4B"]["MODEL_ID"]
+R4B_DTYPE = CFG["BACKEND"]["R4B"]["DTYPE"]
+R4B_USE_4BIT_INFERENCE = CFG["BACKEND"]["R4B"]["USE_4BIT_INFERENCE"]
+R4B_THINKING_MODE = CFG["BACKEND"]["R4B"]["THINKING_MODE"]
+R4B_MAX_NEW_TOKENS = CFG["BACKEND"]["R4B"]["MAX_NEW_TOKENS"]
+R4B_TEMPERATURE = CFG["BACKEND"]["R4B"]["TEMPERATURE"]
+R4B_TOP_P = CFG["BACKEND"]["R4B"]["TOP_P"]
+R4B_TOP_K = CFG["BACKEND"]["R4B"]["TOP_K"]
+
 # 評価
 ENABLE_EVALUATION = CFG["EVALUATION"]["ENABLE"]
 EVAL_EMBEDDINGS = CFG["EVALUATION"]["EMBEDDINGS"]
@@ -214,6 +280,25 @@ def as_dict() -> dict:
         "QWEN7B_TEMPERATURE": QWEN7B_TEMPERATURE,
         "QWEN7B_TOP_P": QWEN7B_TOP_P,
         "QWEN7B_TOP_K": QWEN7B_TOP_K,
+        "OVIS25_MODEL_ID": OVIS25_MODEL_ID,
+        "OVIS25_DTYPE": OVIS25_DTYPE,
+        "OVIS25_USE_4BIT_INFERENCE": OVIS25_USE_4BIT_INFERENCE,
+        "OVIS25_ENABLE_FLASH_ATTN": OVIS25_ENABLE_FLASH_ATTN,
+        "OVIS25_ENABLE_THINKING": OVIS25_ENABLE_THINKING,
+        "OVIS25_ENABLE_THINKING_BUDGET": OVIS25_ENABLE_THINKING_BUDGET,
+        "OVIS25_THINKING_BUDGET": OVIS25_THINKING_BUDGET,
+        "OVIS25_MAX_NEW_TOKENS": OVIS25_MAX_NEW_TOKENS,
+        "OVIS25_TEMPERATURE": OVIS25_TEMPERATURE,
+        "OVIS25_TOP_P": OVIS25_TOP_P,
+        "OVIS25_TOP_K": OVIS25_TOP_K,
+        "R4B_MODEL_ID": R4B_MODEL_ID,
+        "R4B_DTYPE": R4B_DTYPE,
+        "R4B_USE_4BIT_INFERENCE": R4B_USE_4BIT_INFERENCE,
+        "R4B_THINKING_MODE": R4B_THINKING_MODE,
+        "R4B_MAX_NEW_TOKENS": R4B_MAX_NEW_TOKENS,
+        "R4B_TEMPERATURE": R4B_TEMPERATURE,
+        "R4B_TOP_P": R4B_TOP_P,
+        "R4B_TOP_K": R4B_TOP_K,
         "ENABLE_EVALUATION": ENABLE_EVALUATION,
         "EVAL_EMBEDDINGS": EVAL_EMBEDDINGS,
     }
@@ -236,6 +321,11 @@ __all__ = [
     "QWEN3B_MIN_PIXELS", "QWEN3B_MAX_PIXELS", "QWEN3B_MAX_NEW_TOKENS", "QWEN3B_TEMPERATURE", "QWEN3B_TOP_P", "QWEN3B_TOP_K",
     "QWEN7B_MODEL_ID", "QWEN7B_DTYPE", "QWEN7B_USE_4BIT_INFERENCE", "QWEN7B_ENABLE_FLASH_ATTN",
     "QWEN7B_MIN_PIXELS", "QWEN7B_MAX_PIXELS", "QWEN7B_MAX_NEW_TOKENS", "QWEN7B_TEMPERATURE", "QWEN7B_TOP_P", "QWEN7B_TOP_K",
+    "OVIS25_MODEL_ID", "OVIS25_DTYPE", "OVIS25_USE_4BIT_INFERENCE", "OVIS25_ENABLE_FLASH_ATTN",
+    "OVIS25_ENABLE_THINKING", "OVIS25_ENABLE_THINKING_BUDGET", "OVIS25_THINKING_BUDGET", "OVIS25_MAX_NEW_TOKENS",
+    "OVIS25_TEMPERATURE", "OVIS25_TOP_P", "OVIS25_TOP_K",
+    "R4B_MODEL_ID", "R4B_DTYPE", "R4B_USE_4BIT_INFERENCE", "R4B_THINKING_MODE", "R4B_MAX_NEW_TOKENS",
+    "R4B_TEMPERATURE", "R4B_TOP_P", "R4B_TOP_K",
     # evaluation
     "ENABLE_EVALUATION", "EVAL_EMBEDDINGS",
     # helper

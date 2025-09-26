@@ -576,6 +576,41 @@ def main():
                 f"top_p={getattr(CFG, f'{pref}_TOP_P', 0.95)} "
                 f"top_k={getattr(CFG, f'{pref}_TOP_K', 50)}"
             )
+        elif backend == "minicpm":
+            print(f"[config] MiniCPM model_id: {getattr(CFG, 'MINICPM45_MODEL_ID', None)}")
+            print(
+                "[config] "
+                f"4bit={getattr(CFG, 'MINICPM45_USE_4BIT_INFERENCE', True)} "
+                f"min_pixels={getattr(CFG, 'MINICPM45_MIN_PIXELS', 256*28*28)} "
+                f"max_pixels={getattr(CFG, 'MINICPM45_MAX_PIXELS', 896*28*28)} "
+                f"max_new_tokens={getattr(CFG, 'MINICPM45_MAX_NEW_TOKENS', 256)} "
+                f"T={getattr(CFG, 'MINICPM45_TEMPERATURE', 0.7)} "
+                f"top_p={getattr(CFG, 'MINICPM45_TOP_P', 0.95)} "
+                f"top_k={getattr(CFG, 'MINICPM45_TOP_K', 50)}"
+            )
+        elif backend == "ovis":
+            print(f"[config] Ovis model_id: {getattr(CFG, 'OVIS25_MODEL_ID', None)}")
+            print(
+                "[config] "
+                f"4bit={getattr(CFG, 'OVIS25_USE_4BIT_INFERENCE', True)} "
+                f"max_new_tokens={getattr(CFG, 'OVIS25_MAX_NEW_TOKENS', 1024)} "
+                f"T={getattr(CFG, 'OVIS25_TEMPERATURE', 0.7)} "
+                f"top_p={getattr(CFG, 'OVIS25_TOP_P', 0.95)} "
+                f"top_k={getattr(CFG, 'OVIS25_TOP_K', 50)} "
+                f"thinking={getattr(CFG, 'OVIS25_ENABLE_THINKING', False)} "
+                f"budget={getattr(CFG, 'OVIS25_THINKING_BUDGET', 2048)}"
+            )
+        elif backend == "r4b":
+            print(f"[config] R-4B model_id: {getattr(CFG, 'R4B_MODEL_ID', None)}")
+            print(
+                "[config] "
+                f"4bit={getattr(CFG, 'R4B_USE_4BIT_INFERENCE', True)} "
+                f"max_new_tokens={getattr(CFG, 'R4B_MAX_NEW_TOKENS', 2048)} "
+                f"T={getattr(CFG, 'R4B_TEMPERATURE', 0.7)} "
+                f"top_p={getattr(CFG, 'R4B_TOP_P', 0.95)} "
+                f"top_k={getattr(CFG, 'R4B_TOP_K', 50)} "
+                f"thinking_mode={getattr(CFG, 'R4B_THINKING_MODE', 'auto')}"
+            )
     except Exception:
         pass
 

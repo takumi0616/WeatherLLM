@@ -69,6 +69,40 @@ def _print_slim_json_info(info: Dict[str, object]):
         pass
 
 
+def _clean_output_japanese(s: str) -> str:
+    """
+    R-4B 等の出力に混じる不要部分を除去し、日本語コメントのみを残す。
+    - <think>...</think> を削除（大文字小文字/改行を許容）
+    - コードフェンス ``` 行を削除
+    - ひらがな/カタカナを1文字以上含む行のみ残す（中国語の行を排除）
+    - 連続重複行を除去
+    - 一部の曖昧表現を簡易除去（でしょう/可能性/模様/かもしれ/と思われる/と考えられる）
+    """
+    import re
+    if not s:
+        return s
+    # 1) remove think blocks
+    s = re.sub(r"(?is)<think>.*?</think>", "", s)
+    # 2) remove code fences
+    s = re.sub(r"(?m)^```.*?$", "", s)
+    # 3) keep only lines that contain kana (hiragana/katakana)
+    lines = [ln for ln in s.splitlines() if re.search(r"[\u3040-\u30FF]", ln)]
+    # 4) deduplicate consecutive lines
+    dedup = []
+    for ln in lines:
+        ln = ln.strip()
+        if not ln:
+            continue
+        if not dedup or dedup[-1] != ln:
+            dedup.append(ln)
+    s = "\n".join(dedup).strip()
+    # 5) remove hedging phrases
+    s = re.sub(r"(でしょう|可能性|模様|かもしれ|と思われる|と考えられる)", "", s)
+    # 6) normalize spaces
+    s = re.sub(r"[ \t]+", " ", s).strip()
+    return s
+
+
 def _save_symlink_or_metadata(src_dir: Path | str, dst_dir: Path):
     """
     外部（program フォルダ外）のファイル/ディレクトリへアクセスしないため、何もしません。
@@ -499,6 +533,290 @@ def _generate_hf_qwen(text: str, image_path: Path, run_dir: Path, model_id_overr
     return result or "", info
 
 
+def _generate_ovis(text: str, image_path: Path, run_dir: Path) -> Tuple[str, Dict[str, object]]:
+    """
+    Ovis2.5-9B 推論（HF, trust_remote_code）。thinking/budgetを任意サポート。
+    """
+    pref = "OVIS25"
+
+    def _cfg(name: str, default):
+        try:
+            return getattr(CFG, f"{pref}_{name}")
+        except Exception:
+            return default
+
+    model_id = _cfg("MODEL_ID", "AIDC-AI/Ovis2.5-9B")
+    dtype_opt = _cfg("DTYPE", "auto") or "auto"
+    dtype = _torch_dtype_from_cfg(dtype_opt)
+    use_4bit = bool(_cfg("USE_4BIT_INFERENCE", True))
+    enable_fa2 = bool(_cfg("ENABLE_FLASH_ATTN", False))
+    enable_thinking = bool(_cfg("ENABLE_THINKING", False))
+    enable_thinking_budget = bool(_cfg("ENABLE_THINKING_BUDGET", False))
+    thinking_budget = int(_cfg("THINKING_BUDGET", 2048))
+
+    max_new_tokens = int(_cfg("MAX_NEW_TOKENS", 1024))
+    temperature = float(_cfg("TEMPERATURE", 0.7))
+    top_p = float(_cfg("TOP_P", 0.95))
+    top_k = int(_cfg("TOP_K", 50))
+
+    try:
+        from transformers import AutoModelForCausalLM  # type: ignore
+    except Exception as e:
+        raise RuntimeError(f"transformers が見つかりません。インストールしてください: {e}")
+
+    quant_config = None
+    model_kwargs = {
+        "trust_remote_code": True,
+        "device_map": "auto",
+    }
+    if dtype is not None:
+        model_kwargs["dtype"] = dtype
+    if use_4bit:
+        try:
+            from transformers import BitsAndBytesConfig  # type: ignore
+            quant_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_compute_dtype=(dtype if dtype is not None else None) or (getattr(torch, "bfloat16", None) if torch else None),
+            )
+            model_kwargs["quantization_config"] = quant_config
+        except Exception as e:
+            print(f"[warn] bitsandbytes/4bit設定に失敗しました（非インストール/非対応）。FP系で継続します: {e}")
+
+    try:
+        model = AutoModelForCausalLM.from_pretrained(model_id, **model_kwargs)
+    except Exception as e:
+        raise RuntimeError(f"Ovis モデルのロードに失敗しました: {e}")
+
+    try:
+        from PIL import Image  # type: ignore
+        pil_image = Image.open(str(image_path)).convert("RGB")
+    except Exception as e_img:
+        raise RuntimeError(f"PILで画像を開けませんでした: {e_img}")
+
+    messages = [{
+        "role": "user",
+        "content": [
+            {"type": "image", "image": pil_image},
+            {"type": "text", "text": text},
+        ],
+    }]
+    try:
+        input_ids, pixel_values, grid_thws = model.preprocess_inputs(
+            messages=messages,
+            add_generation_prompt=True,
+        )
+    except Exception as e_pre:
+        raise RuntimeError(f"Ovis preprocess_inputs で失敗: {e_pre}")
+
+    device = "cuda" if _is_cuda_available() else "cpu"
+    try:
+        input_ids = input_ids.to(device)
+        if pixel_values is not None:
+            pixel_values = pixel_values.to(device)
+        if grid_thws is not None:
+            grid_thws = grid_thws.to(device)
+    except Exception:
+        pass
+
+    gen_kwargs = {
+        "max_new_tokens": max_new_tokens,
+        "temperature": temperature,
+        "top_p": top_p,
+        "do_sample": True if temperature and temperature > 0 else False,
+    }
+    if enable_thinking:
+        gen_kwargs["enable_thinking"] = True
+        if enable_thinking_budget:
+            gen_kwargs["enable_thinking_budget"] = True
+            gen_kwargs["thinking_budget"] = thinking_budget
+
+    try:
+        call_kwargs = {"inputs": input_ids, **gen_kwargs}
+        if pixel_values is not None:
+            call_kwargs["pixel_values"] = pixel_values
+        if grid_thws is not None:
+            call_kwargs["grid_thws"] = grid_thws
+        outputs = model.generate(**call_kwargs)
+    except Exception as e_gen:
+        # thinkingをオフにしてフォールバック
+        gen_kwargs_fallback = {
+            "max_new_tokens": max_new_tokens,
+            "temperature": 0.0,
+            "top_p": 1.0,
+            "do_sample": False,
+        }
+        call_kwargs = {"inputs": input_ids, **gen_kwargs_fallback}
+        if pixel_values is not None:
+            call_kwargs["pixel_values"] = pixel_values
+        if grid_thws is not None:
+            call_kwargs["grid_thws"] = grid_thws
+        outputs = model.generate(**call_kwargs)
+
+    try:
+        # Ovis は text_tokenizer を提供
+        tok = getattr(model, "text_tokenizer", None)
+        if tok is not None:
+            result = tok.decode(outputs[0], skip_special_tokens=True)
+        else:
+            # フォールバック（モデルが tokenizer 属性を持つ場合）
+            tokenizer = getattr(model, "tokenizer", None)
+            if tokenizer is not None:
+                result = tokenizer.decode(outputs[0], skip_special_tokens=True, clean_up_tokenization_spaces=False)
+            else:
+                result = ""
+    except Exception:
+        result = ""
+
+    info = {
+        "backend": "ovis",
+        "model": model_id,
+        "params": {
+            "max_new_tokens": max_new_tokens,
+            "temperature": temperature,
+            "top_p": top_p,
+            "top_k": top_k,
+            "use_4bit": use_4bit,
+            "dtype": str(dtype) if dtype is not None else "auto",
+            "enable_thinking": enable_thinking,
+            "enable_thinking_budget": enable_thinking_budget,
+            "thinking_budget": thinking_budget,
+        },
+        "run_dir": str(run_dir),
+    }
+    _print_slim_json_info({"backend": "ovis", "model": model_id})
+    return result or "", info
+
+
+def _generate_r4b(text: str, image_path: Path, run_dir: Path) -> Tuple[str, Dict[str, object]]:
+    """
+    YannQi/R-4B 推論（HF, trust_remote_code）。thinking_modeをサポート。
+    """
+    pref = "R4B"
+
+    def _cfg(name: str, default):
+        try:
+            return getattr(CFG, f"{pref}_{name}")
+        except Exception:
+            return default
+
+    model_id = _cfg("MODEL_ID", "YannQi/R-4B")
+    dtype_opt = _cfg("DTYPE", "auto") or "auto"
+    dtype = _torch_dtype_from_cfg(dtype_opt)
+    use_4bit = bool(_cfg("USE_4BIT_INFERENCE", True))
+    thinking_mode = _cfg("THINKING_MODE", "auto")
+
+    max_new_tokens = int(_cfg("MAX_NEW_TOKENS", 2048))
+    temperature = float(_cfg("TEMPERATURE", 0.7))
+    top_p = float(_cfg("TOP_P", 0.95))
+    top_k = int(_cfg("TOP_K", 50))
+
+    try:
+        from transformers import AutoModel, AutoProcessor  # type: ignore
+    except Exception as e:
+        raise RuntimeError(f"transformers が見つかりません。インストールしてください: {e}")
+
+    # 量子化(BnB)
+    quant_config = None
+    model_kwargs = {
+        "trust_remote_code": True,
+        "device_map": "auto",
+    }
+    if dtype is not None:
+        model_kwargs["dtype"] = dtype
+    if use_4bit:
+        try:
+            from transformers import BitsAndBytesConfig  # type: ignore
+            quant_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_compute_dtype=(dtype if dtype is not None else None) or (getattr(torch, "bfloat16", None) if torch else None),
+            )
+            model_kwargs["quantization_config"] = quant_config
+        except Exception as e:
+            print(f"[warn] bitsandbytes/4bit設定に失敗しました（非インストール/非対応）。FP系で継続します: {e}")
+
+    try:
+        model = AutoModel.from_pretrained(model_id, **model_kwargs)
+        processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
+    except Exception as e:
+        raise RuntimeError(f"R-4B モデル/プロセッサのロードに失敗しました: {e}")
+
+    try:
+        from PIL import Image  # type: ignore
+        pil_image = Image.open(str(image_path)).convert("RGB")
+    except Exception as e_img:
+        raise RuntimeError(f"PILで画像を開けませんでした: {e_img}")
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "image", "image": pil_image},
+                {"type": "text", "text": text},
+            ],
+        }
+    ]
+    try:
+        text_for_model = processor.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True, thinking_mode=thinking_mode
+        )
+    except Exception as e_tpl:
+        print(f"[warn] apply_chat_template で例外（フォールバック）: {e_tpl}")
+        text_for_model = f"USER: <image>\n{text}\nASSISTANT:"
+
+    inputs = processor(
+        images=pil_image,
+        text=text_for_model,
+        return_tensors="pt",
+    )
+    try:
+        if _is_cuda_available():
+            inputs = inputs.to("cuda")
+    except Exception:
+        pass
+
+    gen_kwargs = {
+        "max_new_tokens": max_new_tokens,
+        "temperature": temperature,
+        "top_p": top_p,
+        "do_sample": True if temperature and temperature > 0 else False,
+    }
+    try:
+        generated_ids = model.generate(**inputs, **gen_kwargs)
+    except Exception:
+        generated_ids = model.generate(**inputs, max_new_tokens=max_new_tokens, temperature=0.0, top_p=1.0, do_sample=False)
+
+    try:
+        in_ids = inputs.input_ids
+        output_ids = generated_ids[0][len(in_ids[0]):]
+        result = processor.decode(output_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)
+    except Exception:
+        result = processor.decode(generated_ids[0], skip_special_tokens=True, clean_up_tokenization_spaces=False)
+
+    # 中国語プレフィクスや <think> を除去
+    result = _clean_output_japanese(result)
+
+    info = {
+        "backend": "r4b",
+        "model": model_id,
+        "params": {
+            "max_new_tokens": max_new_tokens,
+            "temperature": temperature,
+            "top_p": top_p,
+            "top_k": top_k,
+            "use_4bit": use_4bit,
+            "dtype": str(dtype) if dtype is not None else "auto",
+            "thinking_mode": thinking_mode,
+        },
+        "run_dir": str(run_dir),
+    }
+    _print_slim_json_info({"backend": "r4b", "model": model_id})
+    return result or "", info
+
+
 def _generate_hf(text: str, image_path: Path, run_dir: Path) -> Tuple[str, Dict[str, object]]:
     """
     HFバックエンドのディスパッチャ。
@@ -540,4 +858,8 @@ def generate(
         else:
             mid = None  # use CFG.HF_MODEL_ID
         return _generate_hf_qwen(text, image_path, run_dir, model_id_override=mid, backend_label=backend_label)
+    if b == "ovis":
+        return _generate_ovis(text, image_path, run_dir)
+    if b == "r4b":
+        return _generate_r4b(text, image_path, run_dir)
     raise ValueError(f"Unknown MODEL_BACKEND: {backend}")

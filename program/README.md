@@ -1,8 +1,8 @@
 実行コマンド (Quick Start)
 
-```
+```bash
 # 単一日付を v4 で実行（推奨・最小例）
-python -u main_v2.py --pipeline v4 --date 20220106
+notify-run via-tml2 -- nohup python -u main_v2.py > main_v2.log 2>&1 &
 
 # v1〜v4 を data/png の先頭3日分で一括実行（APIコスト注意）
 python -u main_v2.py --pipeline all --auto --limit 3 --env-file /home/s233319/docker_miniconda/.env
