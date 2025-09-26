@@ -576,18 +576,6 @@ def main():
                 f"top_p={getattr(CFG, f'{pref}_TOP_P', 0.95)} "
                 f"top_k={getattr(CFG, f'{pref}_TOP_K', 50)}"
             )
-        elif backend == "minicpm":
-            print(f"[config] MiniCPM model_id: {getattr(CFG, 'MINICPM45_MODEL_ID', None)}")
-            print(
-                "[config] "
-                f"4bit={getattr(CFG, 'MINICPM45_USE_4BIT_INFERENCE', True)} "
-                f"min_pixels={getattr(CFG, 'MINICPM45_MIN_PIXELS', 256*28*28)} "
-                f"max_pixels={getattr(CFG, 'MINICPM45_MAX_PIXELS', 896*28*28)} "
-                f"max_new_tokens={getattr(CFG, 'MINICPM45_MAX_NEW_TOKENS', 256)} "
-                f"T={getattr(CFG, 'MINICPM45_TEMPERATURE', 0.7)} "
-                f"top_p={getattr(CFG, 'MINICPM45_TOP_P', 0.95)} "
-                f"top_k={getattr(CFG, 'MINICPM45_TOP_K', 50)}"
-            )
         elif backend == "ovis":
             print(f"[config] Ovis model_id: {getattr(CFG, 'OVIS25_MODEL_ID', None)}")
             print(
@@ -633,8 +621,24 @@ def main():
         sys.exit(2)
 
     # Pipelines
-    selected_pipeline = args.pipeline or getattr(CFG, "PIPELINE", "v4")
-    pipelines = ["v1", "v2", "v3", "v4"] if selected_pipeline == "all" else [selected_pipeline]
+    # PIPELINE は以下の優先順で解決:
+    # 1) --pipeline が指定されればそれを使用（"all" なら全て）
+    # 2) 指定がなければ config.py の PIPELINE を使用
+    #    - 文字列 "v1"/"v2"/"v3"/"v4"/"all" いずれか
+    #    - または ["v1","v3"] のように複数指定も可
+    if args.pipeline:
+        if args.pipeline == "all":
+            pipelines = ["v1", "v2", "v3", "v4"]
+        else:
+            pipelines = [args.pipeline]
+    else:
+        cfg_pipe = getattr(CFG, "PIPELINE", "v4")
+        if isinstance(cfg_pipe, list):
+            pipelines = list(cfg_pipe)
+        elif cfg_pipe == "all":
+            pipelines = ["v1", "v2", "v3", "v4"]
+        else:
+            pipelines = [cfg_pipe]
 
     # Run
     overall_codes: List[int] = []

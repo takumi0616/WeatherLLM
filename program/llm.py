@@ -77,16 +77,21 @@ def _clean_output_japanese(s: str) -> str:
     - ひらがな/カタカナを1文字以上含む行のみ残す（中国語の行を排除）
     - 連続重複行を除去
     - 一部の曖昧表現を簡易除去（でしょう/可能性/模様/かもしれ/と思われる/と考えられる）
+    - フォールバック: クリーニング後が空になった場合でも何かを返す
     """
     import re
     if not s:
         return s
+    original = s
+
     # 1) remove think blocks
     s = re.sub(r"(?is)<think>.*?</think>", "", s)
     # 2) remove code fences
     s = re.sub(r"(?m)^```.*?$", "", s)
-    # 3) keep only lines that contain kana (hiragana/katakana)
-    lines = [ln for ln in s.splitlines() if re.search(r"[\u3040-\u30FF]", ln)]
+
+    # 3) keep only lines that contain Japanese kana or kanji
+    lines = [ln for ln in s.splitlines() if re.search(r"[\u3040-\u30FF\u4E00-\u9FFF]", ln)]
+
     # 4) deduplicate consecutive lines
     dedup = []
     for ln in lines:
@@ -95,12 +100,36 @@ def _clean_output_japanese(s: str) -> str:
             continue
         if not dedup or dedup[-1] != ln:
             dedup.append(ln)
-    s = "\n".join(dedup).strip()
+    cleaned = "\n".join(dedup).strip()
+
     # 5) remove hedging phrases
-    s = re.sub(r"(でしょう|可能性|模様|かもしれ|と思われる|と考えられる)", "", s)
+    cleaned = re.sub(r"(でしょう|可能性|模様|かもしれ|と思われる|と考えられる)", "", cleaned)
     # 6) normalize spaces
-    s = re.sub(r"[ \t]+", " ", s).strip()
-    return s
+    cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
+
+    if cleaned:
+        return cleaned
+
+    # ---- Fallback: クリーニングで空になった場合の回復策 ----
+    # a) think/code 除去のみの原文から、中国語の指示文っぽい行を落とす
+    t = re.sub(r"(?is)<think>.*?</think>", "", original)
+    t = re.sub(r"(?m)^```.*?$", "", t)
+    # 一般的な中国語指示語を含む行は除外
+    cn_instr = r"(用户|需要|首先|其次|确保|检查|字数|请|要求|生成|遵循|确保|图中|天气图)"
+    t_lines = [ln.strip() for ln in t.splitlines() if ln.strip() and not re.search(cn_instr, ln)]
+
+    # b) 気象用語・日本語でよく出るキーワードから開始する
+    key = r"(この天気図|天気図|高気圧|低気圧|等圧線|日本|日本海|太平洋|北海道|東北|関東|中部|近畿|中国|四国|九州|沖縄|降水|風|雪|晴)"
+    joined = "\n".join(t_lines)
+    m = re.search(key, joined)
+    if m:
+        joined = joined[m.start():]
+
+    # c) 余計な空白整理
+    joined = re.sub(r"[ \t]+", " ", joined).strip()
+
+    # d) まだ空なら original を軽く整形して返す（最後の砦）
+    return joined if joined else re.sub(r"\s+", " ", original).strip()
 
 
 def _save_symlink_or_metadata(src_dir: Path | str, dst_dir: Path):
@@ -705,7 +734,8 @@ def _generate_r4b(text: str, image_path: Path, run_dir: Path) -> Tuple[str, Dict
     dtype_opt = _cfg("DTYPE", "auto") or "auto"
     dtype = _torch_dtype_from_cfg(dtype_opt)
     use_4bit = bool(_cfg("USE_4BIT_INFERENCE", True))
-    thinking_mode = _cfg("THINKING_MODE", "auto")
+    # 既定は short にして思考文の混入を抑制（configで上書き可）
+    thinking_mode = _cfg("THINKING_MODE", "short")
 
     max_new_tokens = int(_cfg("MAX_NEW_TOKENS", 2048))
     temperature = float(_cfg("TEMPERATURE", 0.7))
@@ -756,6 +786,7 @@ def _generate_r4b(text: str, image_path: Path, run_dir: Path) -> Tuple[str, Dict
             "content": [
                 {"type": "image", "image": pil_image},
                 {"type": "text", "text": text},
+                {"type": "text", "text": "出力は必ず日本語のみ。天気概況のコメントのみを出力。指示文や分析過程は出力しない。"},
             ],
         }
     ]
@@ -793,6 +824,9 @@ def _generate_r4b(text: str, image_path: Path, run_dir: Path) -> Tuple[str, Dict
         in_ids = inputs.input_ids
         output_ids = generated_ids[0][len(in_ids[0]):]
         result = processor.decode(output_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)
+        # トリム後が空なら、未トリムで再デコードして回復
+        if not result or not result.strip():
+            result = processor.decode(generated_ids[0], skip_special_tokens=True, clean_up_tokenization_spaces=False)
     except Exception:
         result = processor.decode(generated_ids[0], skip_special_tokens=True, clean_up_tokenization_spaces=False)
 

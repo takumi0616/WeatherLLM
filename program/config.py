@@ -27,8 +27,31 @@ PNG_DIR = BASE_DIR / "data" / "png"
 # ======================================
 CFG: dict = {
     # 実行パイプライン/対象日
-    "PIPELINE": "v1",      # "v1" | "v2" | "v3" | "v4" | "all"
-    "DATES": ["20220101"],           # 例: ["20220101", "20220106"]（空なら AUTO_FROM_PNG が有効なら自動発見）
+    # PIPELINE は以下のいずれかを指定できます:
+    # - 文字列: "v1" | "v2" | "v3" | "v4" | "all"
+    # - 配列: ["v1", "v3"] のように複数指定可（main_v2.py が順次実行）
+    #
+    # 各パイプラインのプロンプト構成（何を使って組み立てるか）:
+    # - v1:
+    #   - 画像: data/png/{YYYYMMDD}.png
+    #   - テキスト: data/prompt_gpt/v1_instruction.txt
+    #   - 概要: 単画像 + v1の指示文（気象条件の記述のみ）
+    # - v2:
+    #   - 画像: data/png/{YYYYMMDD}.png
+    #   - テキスト: data/prompt_gpt/v2_instruction.txt
+    #   - 概要: v1の強化版。体言止めや出力体裁の制約が強い
+    # - v3:
+    #   - 画像: data/png/{YYYYMMDD}.png
+    #   - テキスト: data/prompt_gpt/v3_instruction.txt
+    #   - 数値データ: data/Numerical_weather_data/{YYYY-M-D}.txt（存在形式は main_v2 が柔軟に探索）
+    #   - 概要: 数値データをコードフェンスで前置し、画像＋指示文で出力
+    # - v4:
+    #   - 画像: data/png/{YYYYMMDD}.png
+    #   - テキスト: data/prompt_gpt/v4_instruction.txt
+    #   - 数値データ: data/Numerical_weather_data/{YYYY-M-D}.txt
+    #   - 概要: v3をベースにプロンプトを調整したバリエーション
+    "PIPELINE": ["v1, v2, v3, v4"],  # 例: "v1" | ["v1", "v3"] | "all"
+    "DATES": ["20220101", "20220106","20220201","20220301","20220401", "20220501", "20220601", "20220621","20220701", "20220801", "20220901", "20220917", "20221001", "20221101", "20221201"],           # 例: ["20220101", "20220106"]（空なら AUTO_FROM_PNG が有効なら自動発見）
     "AUTO_FROM_PNG": True, # data/png/*.png から自動発見
     "AUTO_LIMIT": None,    # 先頭 N 件に制限（None なら制限なし）
 
@@ -67,7 +90,7 @@ CFG: dict = {
             "LOCAL_DIR": None,                       # 既にローカルへ保存済みならパス指定可
             "DEVICE": "auto",                        # "auto" | "cpu" | "cuda"
             "USE_4BIT_INFERENCE": True,             # 4bit 量子化（bitsandbytes 必須）
-            "MAX_NEW_TOKENS": 256,
+            "MAX_NEW_TOKENS": 2048,
             "TEMPERATURE": 0.7,
             "TOP_P": 0.95,
             "TOP_K": 50,
@@ -82,7 +105,7 @@ CFG: dict = {
             "ENABLE_FLASH_ATTN": False,       # flash_attention_2（不可なら自動フォールバック）
             "MIN_PIXELS": 256 * 28 * 28,      # VRAM節約のための入力画像サイズ下限
             "MAX_PIXELS": 896 * 28 * 28,      # 上限（性能/VRAMのバランス）
-            "MAX_NEW_TOKENS": 256,
+            "MAX_NEW_TOKENS": 2048,
             "TEMPERATURE": 0.7,
             "TOP_P": 0.95,
             "TOP_K": 50,
@@ -96,7 +119,7 @@ CFG: dict = {
             "ENABLE_FLASH_ATTN": False,
             "MIN_PIXELS": 256 * 28 * 28,
             "MAX_PIXELS": 896 * 28 * 28,
-            "MAX_NEW_TOKENS": 256,
+            "MAX_NEW_TOKENS": 2048,
             "TEMPERATURE": 0.7,
             "TOP_P": 0.95,
             "TOP_K": 50,
