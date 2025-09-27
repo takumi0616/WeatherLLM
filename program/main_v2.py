@@ -633,12 +633,20 @@ def main():
             pipelines = [args.pipeline]
     else:
         cfg_pipe = getattr(CFG, "PIPELINE", "v4")
+        allowed = {"v1", "v2", "v3", "v4"}
         if isinstance(cfg_pipe, list):
-            pipelines = list(cfg_pipe)
-        elif cfg_pipe == "all":
-            pipelines = ["v1", "v2", "v3", "v4"]
+            pipelines = [str(p).strip() for p in cfg_pipe if str(p).strip() in allowed]
+        elif isinstance(cfg_pipe, str):
+            if cfg_pipe == "all":
+                pipelines = ["v1", "v2", "v3", "v4"]
+            else:
+                # カンマ区切り/空白区切りの両方に対応（例: "v1, v2, v3, v4" や "v1 v2"）
+                tokens = [t.strip() for t in re.split(r"[,\s]+", cfg_pipe) if t.strip()]
+                pipelines = [t for t in tokens if t in allowed]
         else:
-            pipelines = [cfg_pipe]
+            pipelines = ["v4"]
+        if not pipelines:
+            pipelines = ["v4"]
 
     # Run
     overall_codes: List[int] = []
