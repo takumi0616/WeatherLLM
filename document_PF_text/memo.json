@@ -1,0 +1,331 @@
+{
+    "info": {
+        "date": [
+            "2024-01-22",
+            "2024-01-23",
+            "2024-01-24"
+        ]
+    },
+    "mintemp": [
+        {
+            "value": "6.8",
+            "kind": "observation"
+        },
+        {
+            "value": "3.9",
+            "kind": "observation"
+        },
+        {
+            "value": "0.1",
+            "kind": "observation"
+        }
+    ],
+    "mintemp_anom_normal": [
+        {
+            "value": "7.0",
+            "importance": 1.4771212547196626
+        },
+        {
+            "value": "4.1",
+            "importance": 2
+        },
+        {
+            "value": "0.4",
+            "importance": 0.4170543302039226
+        }
+    ],
+    "mintemp_anom_prev": [
+        {
+            "value": "-2.9",
+            "importance": 0.8616888613494245
+        },
+        {
+            "value": "-3.8",
+            "importance": 1.11745532921465
+        }
+    ],
+    "maxtemp": [
+        {
+            "value": "10.7",
+            "kind": "observation"
+        },
+        {
+            "value": "6.1",
+            "kind": "observation"
+        },
+        {
+            "value": "4.1",
+            "kind": "observation"
+        }
+    ],
+    "maxtemp_anom_normal": [
+        {
+            "value": "5.6",
+            "importance": 2
+        },
+        {
+            "value": "1.0",
+            "importance": 0.47712125471966255
+        },
+        {
+            "value": "-1.0",
+            "importance": 0.44097459985508325
+        }
+    ],
+    "maxtemp_anom_prev": [
+        {
+            "value": "-4.6",
+            "importance": 1.077660837858275
+        },
+        {
+            "value": "-2.0",
+            "importance": 0.5620986284503564
+        }
+    ],
+    "prcp_day": [
+        {
+            "value": "3.5",
+            "importance": 0.39522737177501993,
+            "kind": "observation"
+        },
+        {
+            "value": "4.5",
+            "importance": 0.4302648692393468,
+            "kind": "observation"
+        },
+        {
+            "value": "0.0",
+            "importance": 0,
+            "kind": "observation"
+        }
+    ],
+    "maxprcp_1h": [
+        {
+            "value": "1.5",
+            "importance": 0.37570607355448055,
+            "time": "2024-01-21 23:54:00",
+            "kind": "observation"
+        },
+        {
+            "value": "1.5",
+            "importance": 0.37570607355448055,
+            "time": "2024-01-23 22:58:00",
+            "kind": "observation"
+        },
+        {
+            "value": "0.5",
+            "importance": 0.17609125905568118,
+            "time": "2024-01-24 00:48:00",
+            "kind": "observation"
+        }
+    ],
+    "wind": [
+        {
+            "value": "2.8",
+            "importance": 0.014723256820706345,
+            "kind": "observation"
+        },
+        {
+            "value": "4.7",
+            "importance": 1.0334237554869499,
+            "kind": "observation"
+        },
+        {
+            "value": "6.6",
+            "importance": 1.4771212547196626,
+            "kind": "observation"
+        }
+    ],
+    "snow": [
+        {
+            "value": 0,
+            "importance": 0,
+            "kind": "observation"
+        },
+        {
+            "value": 0,
+            "importance": 0,
+            "kind": "observation"
+        },
+        {
+            "value": 0,
+            "importance": 0,
+            "kind": "observation"
+        }
+    ],
+    "weather": [
+        {
+            "dateJ": "01月22日",
+            "date": "2024-01-22",
+            "Wd": 202,
+            "Ws": [
+                31,
+                31,
+                31,
+                31,
+                31,
+                41,
+                41,
+                41
+            ],
+            "com": "夕方以降は雨。そのほかの時間帯も降りやすい。",
+            "list": {
+                "65": "雷の鳴る時間帯: なし",
+                "70": "雨雪判別: 雨",
+                "71": "降るかもしれない時間帯: 1日中",
+                "73": "降る時間帯: 夕方以降"
+            },
+            "Wd_text": "くもり 一時 雨",
+            "Ws_text": [
+                {
+                    "time": "未明",
+                    "weather": "曇り(雨の可能性あり)"
+                },
+                {
+                    "time": "明け方",
+                    "weather": "曇り(雨の可能性あり)"
+                },
+                {
+                    "time": "朝",
+                    "weather": "曇り(雨の可能性あり)"
+                },
+                {
+                    "time": "昼前",
+                    "weather": "曇り(雨の可能性あり)"
+                },
+                {
+                    "time": "昼過ぎ",
+                    "weather": "曇り(雨の可能性あり)"
+                },
+                {
+                    "time": "夕方",
+                    "weather": "曇り時々雨"
+                },
+                {
+                    "time": "夜のはじめ頃",
+                    "weather": "曇り時々雨"
+                },
+                {
+                    "time": "夜遅く",
+                    "weather": "曇り時々雨"
+                }
+            ],
+            "importance": 1
+        },
+        {
+            "dateJ": "01月23日",
+            "date": "2024-01-23",
+            "Wd": 205,
+            "Ws": [
+                41,
+                31,
+                31,
+                31,
+                31,
+                43,
+                43,
+                53
+            ],
+            "com": "未明は雨で、夕方以降は雪。",
+            "list": {
+                "65": "雷の鳴る時間帯: なし",
+                "70": "雨雪判別: 未明は雨で夕方以降は雪",
+                "71": "降るかもしれない時間帯: 1日中",
+                "73": "降る時間帯: 未明と夕方以降"
+            },
+            "Wd_text": "くもり 時々 雪",
+            "Ws_text": [
+                {
+                    "time": "未明",
+                    "weather": "曇り時々雨"
+                },
+                {
+                    "time": "明け方",
+                    "weather": "曇り(雨の可能性あり)"
+                },
+                {
+                    "time": "朝",
+                    "weather": "曇り(雨の可能性あり)"
+                },
+                {
+                    "time": "昼前",
+                    "weather": "曇り(雨の可能性あり)"
+                },
+                {
+                    "time": "昼過ぎ",
+                    "weather": "曇り(雨の可能性あり)"
+                },
+                {
+                    "time": "夕方",
+                    "weather": "曇り時々雪"
+                },
+                {
+                    "time": "夜のはじめ頃",
+                    "weather": "曇り時々雪"
+                },
+                {
+                    "time": "夜遅く",
+                    "weather": "雪"
+                }
+            ],
+            "importance": 1
+        },
+        {
+            "dateJ": "01月24日",
+            "date": "2024-01-24",
+            "Wd": 205,
+            "Ws": [
+                43,
+                43,
+                31,
+                43,
+                43,
+                43,
+                43,
+                43
+            ],
+            "com": "1日を通して雪。",
+            "list": {
+                "65": "雷の鳴る時間帯: なし",
+                "70": "雨雪判別: 雪",
+                "73": "降る時間帯: 1日中"
+            },
+            "Wd_text": "くもり 時々 雪",
+            "Ws_text": [
+                {
+                    "time": "未明",
+                    "weather": "曇り時々雪"
+                },
+                {
+                    "time": "明け方",
+                    "weather": "曇り時々雪"
+                },
+                {
+                    "time": "朝",
+                    "weather": "曇り(雨の可能性あり)"
+                },
+                {
+                    "time": "昼前",
+                    "weather": "曇り時々雪"
+                },
+                {
+                    "time": "昼過ぎ",
+                    "weather": "曇り時々雪"
+                },
+                {
+                    "time": "夕方",
+                    "weather": "曇り時々雪"
+                },
+                {
+                    "time": "夜のはじめ頃",
+                    "weather": "曇り時々雪"
+                },
+                {
+                    "time": "夜遅く",
+                    "weather": "曇り時々雪"
+                }
+            ],
+            "importance": 1
+        }
+    ]
+}

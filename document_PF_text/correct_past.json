@@ -1,0 +1,380 @@
+{
+    "info": {
+        "point": "A31312",
+        "name": "青森",
+        "date": [
+            "2023-12-16",
+            "2023-12-17",
+            "2023-12-18"
+        ],
+        "ann_time": "2023-12-17_08",
+        "ini_time": "2023-12-17 03:00:00",
+        "amedas_time": "2025-02-06 23:20:00"
+    },
+    "weather_comment": {
+        "yesterday": "きのうは、夕方以降に雨が降りました。最低気温は1.8℃で、平年よりも3.4℃高かったです。降水量は9.5mmでした。",
+        "today": "きょうは、冬型の気圧配置の影響で、朝から一日を通して雪が降り、昼前には吹雪くでしょう。明け方には最大1時間降水量5.0mmの雪を観測しました。風は西からの穏やかな風で、平均風速は7.9m/sでした。",
+        "tomorrow": "あしたは、冬型の気圧配置の影響で一日中雪が降るでしょう。 最高気温は平年よりも大幅に低い1.7℃となるでしょう。 風は穏やかな西風で、平均風速は5.3m/sでしょう。 積雪は20cmとなり、大雪に注意が必要です。"
+    },
+    "yesterday_Pressure_Pattern": "冬型の気圧配置",
+    "today_Pressure_Pattern": "冬型の気圧配置",
+    "tomorrow_Pressure_Pattern": "冬型の気圧配置",
+    "is_yesterday_winter_pressuer_pattern": 0,
+    "is_today_winter_pressuer_pattern": 1,
+    "is_tomorrow_winter_pressuer_pattern": 1,
+    "mintemp": [
+        {
+            "value": 1.8,
+            "kind": "observation"
+        },
+        {
+            "value": -0.2,
+            "kind": "observation"
+        },
+        {
+            "value": -4.8,
+            "kind": "observation"
+        }
+    ],
+    "mintemp_day": [
+        {
+            "value": "",
+            "information": 0
+        },
+        {
+            "value": "冬日",
+            "importance": 0.8893017025063104
+        },
+        {
+            "value": "冬日",
+            "importance": 0.8893017025063104
+        }
+    ],
+    "mintemp_anom_normal": [
+        {
+            "value": 3.4,
+            "importance": 1.0202033860882869
+        },
+        {
+            "value": 1.5,
+            "importance": 0.5185664666967732
+        },
+        {
+            "value": -3,
+            "importance": 0.9056516666272963
+        }
+    ],
+    "mintemp_anom_prev": [
+        null,
+        {
+            "value": -2,
+            "importance": 0.6200676711891343
+        },
+        {
+            "value": -4.6,
+            "importance": 1.2838835270638038
+        }
+    ],
+    "maxtemp": [
+        {
+            "value": 5.1,
+            "kind": "observation"
+        },
+        {
+            "value": 1.3,
+            "kind": "observation"
+        },
+        {
+            "value": -1.7,
+            "kind": "observation"
+        }
+    ],
+    "maxtemp_day": [
+        {
+            "value": "",
+            "importance": 0
+        },
+        {
+            "value": "",
+            "importance": 0
+        },
+        {
+            "value": "真冬日",
+            "importance": 0.1489390130120664
+        }
+    ],
+    "maxtemp_anom_normal": [
+        {
+            "value": 0.9,
+            "importance": 0.40007865981537505
+        },
+        {
+            "value": -2.8,
+            "importance": 0.6186103744830611
+        },
+        {
+            "value": -5.7,
+            "importance": 1.278089305352684
+        }
+    ],
+    "maxtemp_anom_prev": [
+        null,
+        {
+            "value": -3.8,
+            "importance": 0.8478019927298895
+        },
+        {
+            "value": -3,
+            "importance": 0.7015911320823507
+        }
+    ],
+    "prcp_day": [
+        {
+            "value": 9.5,
+            "importance": 0.6446631697514142,
+            "kind": "observation"
+        },
+        {
+            "value": 21,
+            "importance": 1.1167109901940233,
+            "kind": "observation"
+        },
+        {
+            "value": 12.5,
+            "importance": 0.8820018067473384,
+            "kind": "observation"
+        }
+    ],
+    "maxprcp_1h": [
+        {
+            "value": 2.5,
+            "importance": 0.611500728832836,
+            "time": "2023-12-16 18:33:00",
+            "kind": "observation"
+        },
+        {
+            "value": 5,
+            "importance": 1.2833012287035501,
+            "time": "2023-12-17 04:18:00",
+            "kind": "observation"
+        },
+        {
+            "value": 2.5,
+            "importance": 0.611500728832836,
+            "time": "2023-12-18 05:47:00",
+            "kind": "observation"
+        }
+    ],
+    "wind": [
+        {
+            "value": 2.6,
+            "importance": 0.014723256820706345,
+            "kind": "observation",
+            "dir": "SSW"
+        },
+        {
+            "value": 7.9,
+            "importance": 1.4771212547196626,
+            "kind": "observation",
+            "dir": "W"
+        },
+        {
+            "value": 5.3,
+            "importance": 1.4771212547196626,
+            "kind": "observation",
+            "dir": "W"
+        }
+    ],
+    "snow": [
+        {
+            "value": 0,
+            "importance": 0,
+            "kind": "observation"
+        },
+        {
+            "value": 16,
+            "importance": 1.026824022461873,
+            "kind": "observation"
+        },
+        {
+            "value": 20,
+            "importance": 1.0998280160252691,
+            "kind": "observation"
+        }
+    ],
+    "weather": [
+        {
+            "dateJ": "12月16日",
+            "date": "2023-12-16",
+            "Wd": 202,
+            "Ws": [
+                31,
+                31,
+                31,
+                31,
+                31,
+                41,
+                31,
+                41
+            ],
+            "com": "夕方以降は雨。そのほかの時間帯も降りやすい。",
+            "list": {
+                "65": "雷の鳴る時間帯: なし",
+                "70": "雨雪判別: 雨",
+                "71": "降るかもしれない時間帯: 1日中",
+                "73": "降る時間帯: 夕方以降"
+            },
+            "Wd_text": "くもり 一時 雨",
+            "Ws_text": [
+                {
+                    "time": "未明",
+                    "weather": "曇り(雨の可能性あり)"
+                },
+                {
+                    "time": "明け方",
+                    "weather": "曇り(雨の可能性あり)"
+                },
+                {
+                    "time": "朝",
+                    "weather": "曇り(雨の可能性あり)"
+                },
+                {
+                    "time": "昼前",
+                    "weather": "曇り(雨の可能性あり)"
+                },
+                {
+                    "time": "昼過ぎ",
+                    "weather": "曇り(雨の可能性あり)"
+                },
+                {
+                    "time": "夕方",
+                    "weather": "曇り時々雨"
+                },
+                {
+                    "time": "夜のはじめ頃",
+                    "weather": "曇り(雨の可能性あり)"
+                },
+                {
+                    "time": "夜遅く",
+                    "weather": "曇り時々雨"
+                }
+            ],
+            "importance": 1
+        },
+        {
+            "dateJ": "12月17日",
+            "date": "2023-12-17",
+            "Wd": 800,
+            "Ws": [
+                0,
+                0,
+                53,
+                83,
+                53,
+                53,
+                53,
+                53
+            ],
+            "com": "朝から1日を通して雪。昼前は吹雪く。",
+            "list": {
+                "65": "雷の鳴る時間帯: なし",
+                "70": "雨雪判別: 雪",
+                "73": "降る時間帯: 朝から夜",
+                "82": "吹雪く時間帯： 昼前"
+            },
+            "Wd_text": "不明",
+            "Ws_text": [
+                {
+                    "time": "未明",
+                    "weather": "不明"
+                },
+                {
+                    "time": "明け方",
+                    "weather": "不明"
+                },
+                {
+                    "time": "朝",
+                    "weather": "雪"
+                },
+                {
+                    "time": "昼前",
+                    "weather": "吹雪"
+                },
+                {
+                    "time": "昼過ぎ",
+                    "weather": "雪"
+                },
+                {
+                    "time": "夕方",
+                    "weather": "雪"
+                },
+                {
+                    "time": "夜のはじめ頃",
+                    "weather": "雪"
+                },
+                {
+                    "time": "夜遅く",
+                    "weather": "雪"
+                }
+            ],
+            "importance": 1
+        },
+        {
+            "dateJ": "12月18日",
+            "date": "2023-12-18",
+            "Wd": 400,
+            "Ws": [
+                53,
+                53,
+                53,
+                53,
+                53,
+                53,
+                53,
+                43
+            ],
+            "com": "1日を通して雪。",
+            "list": {
+                "65": "雷の鳴る時間帯: なし",
+                "70": "雨雪判別: 雪",
+                "73": "降る時間帯: 1日中"
+            },
+            "Wd_text": "雪",
+            "Ws_text": [
+                {
+                    "time": "未明",
+                    "weather": "雪"
+                },
+                {
+                    "time": "明け方",
+                    "weather": "雪"
+                },
+                {
+                    "time": "朝",
+                    "weather": "雪"
+                },
+                {
+                    "time": "昼前",
+                    "weather": "雪"
+                },
+                {
+                    "time": "昼過ぎ",
+                    "weather": "雪"
+                },
+                {
+                    "time": "夕方",
+                    "weather": "雪"
+                },
+                {
+                    "time": "夜のはじめ頃",
+                    "weather": "雪"
+                },
+                {
+                    "time": "夜遅く",
+                    "weather": "曇り時々雪"
+                }
+            ],
+            "importance": 1
+        }
+    ]
+}
