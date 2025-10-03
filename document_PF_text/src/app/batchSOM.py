@@ -430,7 +430,7 @@ def train_som_classifier():
     np.random.seed(0)
 
     # data_label_dict と各種日付リストをインポート
-    from app.pressure_pattern_label import (
+    from WeatherLLM.document_PF_text.pressure_pattern_label import (
         data_label_dict,
         rain_dates_list,
         summer_dates_list,
