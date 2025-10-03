@@ -13,18 +13,18 @@ Original file is located at
 
 本コードはOmnicampusで提供される演習環境での実行を想定しています。  
 それ以外の環境で実行される場合は適宜、修正して下さい。
-"""
 
 # python 3.10.12
-!pip install -U pip
-!pip install -U transformers
-!pip install -U bitsandbytes
-!pip install -U accelerate
-!pip install -U datasets
-!pip install -U peft
-!pip install -U trl
-!pip install -U wandb
-!pip install ipywidgets --upgrade
+# !pip install -U pip
+# !pip install -U transformers
+# !pip install -U bitsandbytes
+# !pip install -U accelerate
+# !pip install -U datasets
+# !pip install -U peft
+# !pip install -U trl
+# !pip install -U wandb
+# !pip install ipywidgets --upgrade
+"""
 
 from transformers import (
     AutoModelForCausalLM,
