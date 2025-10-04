@@ -157,7 +157,8 @@ CFG: dict = {
     # 評価関連
     "EVALUATION": {
         "ENABLE": True,       # True で original_comment との比較を実施
-        "EMBEDDINGS": "openai"  # "openai" | None（LLaVAのみで完結させたい場合は None）
+        "EMBEDDINGS": "openai",  # "openai" | None（LLaVAのみで完結させたい場合は None）
+        "NIST_N": 5,          # NISTの最大n-gram長
     },
 }
 
@@ -252,6 +253,7 @@ R4B_TOP_K = CFG["BACKEND"]["R4B"]["TOP_K"]
 # 評価
 ENABLE_EVALUATION = CFG["EVALUATION"]["ENABLE"]
 EVAL_EMBEDDINGS = CFG["EVALUATION"]["EMBEDDINGS"]
+EVAL_NIST_N = CFG["EVALUATION"].get("NIST_N", 5)
 
 def as_dict() -> dict:
     """main_v1.py 等から参照される互換ヘルパ。既存キーを維持して返す。"""
@@ -324,6 +326,7 @@ def as_dict() -> dict:
         "R4B_TOP_K": R4B_TOP_K,
         "ENABLE_EVALUATION": ENABLE_EVALUATION,
         "EVAL_EMBEDDINGS": EVAL_EMBEDDINGS,
+        "EVAL_NIST_N": EVAL_NIST_N,
     }
 
 __all__ = [
@@ -350,7 +353,7 @@ __all__ = [
     "R4B_MODEL_ID", "R4B_DTYPE", "R4B_USE_4BIT_INFERENCE", "R4B_THINKING_MODE", "R4B_MAX_NEW_TOKENS",
     "R4B_TEMPERATURE", "R4B_TOP_P", "R4B_TOP_K",
     # evaluation
-    "ENABLE_EVALUATION", "EVAL_EMBEDDINGS",
+    "ENABLE_EVALUATION", "EVAL_EMBEDDINGS", "EVAL_NIST_N",
     # helper
     "as_dict",
 ]

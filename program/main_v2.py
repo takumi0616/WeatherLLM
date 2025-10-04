@@ -48,6 +48,11 @@ try:
 except Exception:
     sacrebleu = None
 
+try:
+    from nltk.translate import nist_score as _nist
+except Exception:
+    _nist = None
+
 from openai import OpenAI
 
 # Load program config
@@ -262,6 +267,22 @@ def calc_bleu(ref_tokens, hyp_tokens) -> float:
     return float(sacrebleu.sentence_bleu(" ".join(hyp_tokens), [" ".join(ref_tokens)], tokenize="none").score)
 
 
+def calc_nist(ref_tokens, hyp_tokens, n: int = 5) -> float:
+    """
+    NIST (sentence-level) を計算。NLTK の nist_score を利用。
+    参照: nltk.translate.nist_score.sentence_nist(references, hypothesis, n)
+    - references: List[List[str]]
+    - hypothesis: List[str]
+    """
+    if _nist is None:
+        return 0.0
+    try:
+        return float(_nist.sentence_nist([ref_tokens], hyp_tokens, n))
+    except Exception:
+        # 短すぎる文/高次n-gramが無い場合などは0点
+        return 0.0
+
+
 def calc_rouge1_f1(ref_tokens, hyp_tokens) -> float:
     if rouge_scorer is not None:
         scorer = rouge_scorer.RougeScorer(['rouge1'], use_stemmer=False)
@@ -472,8 +493,10 @@ def run_one(pipeline: str, date: str, env_file: Optional[str], api_key_arg: Opti
                         except Exception as e:
                             metrics["embedding_cosine_error"] = str(e)
 
-                    # BLEU and ROUGE-1 (F1) with char-level fallback
+                    # BLEU, NIST and ROUGE-1 (F1) with char-level fallback
                     metrics["bleu"] = calc_bleu(ref_tokens, hyp_tokens)
+                    n_nist = int(getattr(CFG, "EVAL_NIST_N", 5))
+                    metrics["nist"] = calc_nist(ref_tokens, hyp_tokens, n_nist)
                     r1 = calc_rouge1_f1(ref_tokens, hyp_tokens)
                     if r1 == 0.0:
                         r1 = char_level_f1(original_text, result or "")
@@ -488,6 +511,7 @@ def run_one(pipeline: str, date: str, env_file: Optional[str], api_key_arg: Opti
                     elif "embedding_cosine_error" in metrics:
                         print(f"Embedding cosine: エラー ({metrics.get('embedding_cosine_error')})")
                     print(f"BLEU: {metrics.get('bleu', 0.0):.6f}")
+                    print(f"NIST-{getattr(CFG, 'EVAL_NIST_N', 5)}: {metrics.get('nist', 0.0):.6f}")
                     print(f"ROUGE-1 F1: {metrics.get('rouge1_f1', 0.0):.6f}")
                 except Exception as e:
                     metrics["error"] = f"評価に失敗: {e}"
