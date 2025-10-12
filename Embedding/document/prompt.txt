@@ -1,0 +1,17 @@
+src/WeatherLLM/Embedding/document/static-embedding-japanese.pdf
+
+上記のモデルを自分の環境で使用可能にしたいです
+huggingfaceの利用方法は以下のプログラムを参考にしてください
+src/WeatherLLM/llava.py
+
+お願いしたい処理として、まず、static-embedding-japaneseを使用可能にするプログラムをsrc/WeatherLLM/Embedding/model/static-embedding-japanese.pyに作成してください
+この中にstatic-embedding-japaneseを呼び出せる関数処理のようなものを作成してください（huggingfaceから持ってきて使用可能にするところまでを行う処理）
+embeddingmodelを実際に呼び出すのはsrc/WeatherLLM/Embedding/main_v1.pyにしてください
+このプログラムでは、src/WeatherLLM/Embedding/model/static-embedding-japanese.pyを読み込んでくる、また、比べる2つの文章を以下から引っ張ってくる
+./data/generate_comment/2022_01_01_gpt_generate_v4.txt
+./data/original_comment/2022_01_01_original.txt
+
+呼び出したモデルと2つの文章を比べてスコアを出すようにしたいです
+
+上記のプログラムやファイルを完成させてください
+日本語で解説
