@@ -253,8 +253,13 @@ def _token_embeddings_hf(
     for k, v in enc.items():
         enc[k] = v.to(device)
 
+    # モデルへは特殊トークンマスクを渡さない（BertModel.forward は special_tokens_mask を受け取らない）
+    model_inputs = {"input_ids": enc["input_ids"], "attention_mask": enc["attention_mask"]}
+    if "token_type_ids" in enc:
+        model_inputs["token_type_ids"] = enc["token_type_ids"]
+
     with torch.inference_mode():
-        out = model(**enc)
+        out = model(**model_inputs)
     if hasattr(out, "last_hidden_state"):
         hidden = out.last_hidden_state  # (1, T, D)
     elif isinstance(out, (tuple, list)) and len(out) > 0 and isinstance(out[0], torch.Tensor):
