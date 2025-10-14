@@ -1,25 +1,33 @@
 # -*- coding: utf-8 -*-
 """
-Sarashina-Embedding-v2-1B を使って2つの文章の類似度（コサイン類似度）を算出するスクリプト。
+main_v2.py
 
-要件:
-- ラッパーモジュール: model/Sarashina_Embedding_v2_1B.py を用いる
-  （通常の import を使用）
-- 比較対象の2文章は以下のファイルから読み込む（本スクリプトファイル基準の相対パス）
-  ./data/generate_comment/2022_01_01_gpt_generate_v4.txt
-  ./data/original_comment/2022_01_01_original.txt
-- 出力: 類似度スコア（-1..1, コサイン類似度）を標準出力へ
+目的:
+- main_v1.py の評価ロジックを全て包含
+- 追加で、WebLab 10B Instruction SFT（llm_model/weblab_10b_instruction_sft.py）を ./models に自動ダウンロード（既存あれば再利用）して、（13BはGPU要件が高いためデフォルト無効。必要なら import を切替）
+  data/Numerical_weather_data の各日付ファイルと data/prompt_gpt/v4_instruction.txt を「そのまま連結」した
+  プロンプトで生成を実行
+- 生成した LLM 出力を以下で評価（main_v1 と同じ埋め込み評価系を利用）
+  1) LLM出力 vs original_comment
+  2) LLM出力 vs data/generate_comment（gpt v4）
+- 生成文は data/llm_outputs/weblab10b/{YYYY_MM_DD}_weblab10b.txt に保存
+- main_v1 相当の比較（generate_comment vs original_comment）も従来通り実行
+- ログ:
+  - main_v1 互換の結果: result_v1.log（main_v1 と同名互換）
+  - LLM 生成・評価の結果: result_v2.log
 
 実行例:
-nohup python main_v1.py > main_v1.log 2>&1 &
+nohup python main_v2.py --run-llm > main_v2.log 2>&1 &
+pkill -f "main_v2.py"
 
-pkill -f "main_v1.py"
+注:
+- 大規模モデルのため、GPU 環境推奨。bitsandbytes が無ければ FP16/BF16/FP32 でロードします。
+- HF_TOKEN 環境変数が設定されていれば Hugging Face のダウンロードに使用します。
 """
 
 import os
 import sys
 import argparse
-import importlib.util
 import re
 import csv
 import math
@@ -36,7 +44,7 @@ from llm_utils import setup_logger  # noqa: E402
 # torchvision の import に伴う不整合回避（transformers が画像ユーティリティを読み込まないようにする）
 os.environ.setdefault("TRANSFORMERS_NO_TORCHVISION", "1")
 
-# モデルラッパを通常 import
+# Embedding/Metric モジュール（main_v1 と同一）
 from embedding_model import Sarashina_Embedding_v2_1B as sarashina
 from embedding_model import sarashina_embedding_v1_1B as sarashina_v1_mod
 from embedding_model import static_embedding_japanese as static_mod
@@ -61,7 +69,15 @@ from embedding_model import sbert_base_ja as sbert_base_mod
 from embedding_model import JaColBERTv2_5 as jacolbert25_mod
 from embedding_model import JaColBERTv2 as jacolbert2_mod
 
-LOGGER = setup_logger("embedding_main")
+# 追加: WebLab 10B Instruction SFT ラッパ（既定）
+from llm_model import weblab_10b_instruction_sft as llmjp
+# 旧: LLM-JP 3.x 13B ラッパ（GPUメモリ要件が高いためデフォルト無効）
+# from llm_model import llm_jp_3_1_13b as llmjp
+
+LOGGER = setup_logger("embedding_main_v2")
+
+
+# ===== main_v1.py 相当の関数群（そのまま収録） =====
 
 def _parse_ver(s: str):
     """'2.7.0' のような文字列を (2,7,0) のタプルに変換（簡易）。非数は 0 扱い。"""
@@ -110,7 +126,7 @@ def _read_text(path: str, use_first_line: bool = False) -> str:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Compare two Japanese texts using Sarashina-Embedding-v2-1B.")
+    parser = argparse.ArgumentParser(description="Compare texts and run an LLM with weather prompts.")
     parser.add_argument(
         "--task",
         type=str,
@@ -126,6 +142,12 @@ def parse_args() -> argparse.Namespace:
         help="static-embedding-japanese の出力次元を切り詰め（未指定なら1024）",
     )
     parser.add_argument("--use-first-line", action="store_true", help="各ファイルの最初の非空行のみを文章として使用")
+
+    # v2 追加
+    parser.add_argument("--run-llm", action="store_true", help="LLM（既定: WebLab 10B）による生成と評価を実行")
+    parser.add_argument("--llm-max-new-tokens", type=int, default=320, help="LLM 生成トークン数")
+    parser.add_argument("--llm-temperature", type=float, default=0.2, help="LLM 温度")
+    parser.add_argument("--skip-v1", action="store_true", help="main_v1 相当の評価（generate vs original）をスキップ")
     return parser.parse_args()
 
 
@@ -150,14 +172,17 @@ def resolve_pair_paths() -> List[Tuple[str, str, str]]:
     gen_map: Dict[str, str] = {}
     org_map: Dict[str, str] = {}
 
-    if os.path.isdir(gen_dir):
+    gen_dir_exists = os.path.isdir(gen_dir)
+    org_dir_exists = os.path.isdir(org_dir)
+
+    if gen_dir_exists:
         for fname in os.listdir(gen_dir):
             m = gen_pat.match(fname)
             if m:
                 date = m.group(1)
                 gen_map[date] = os.path.join(gen_dir, fname)
 
-    if os.path.isdir(org_dir):
+    if org_dir_exists:
         for fname in os.listdir(org_dir):
             m = org_pat.match(fname)
             if m:
@@ -198,14 +223,9 @@ def load_human_eval(csv_path: str) -> Dict[Tuple[str, str], float]:
     return mapping
 
 
-def main():
-    args = parse_args()
+# ===== v1 比較（generate vs original）を実行する関数 =====
 
-    # デバイス自動選択（GPUがあればCUDA、なければCPU）
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    LOGGER.info(f"Selected device: {device}")
-
-    # ライブラリ互換性に基づくモデル有効化フラグ（全ペア共通で一度だけ判定）
+def run_v1_evaluation(args: argparse.Namespace) -> None:
     st_ver, tf_ver, has_flash_attn = _detect_caps()
     can_static = st_ver >= (3, 3, 1)          # StaticEmbedding には ST>=3.3.1 が必要
     can_jina = st_ver >= (3, 0, 0)            # Jina v3 は ST>=3 系を前提
@@ -216,10 +236,11 @@ def main():
     # Transformers>=4.45.0 かつ flash-attn 未検出時のみ許可（保守的）
     can_sarashina = (tf_ver >= (4, 45, 0)) and (not has_flash_attn)
 
-    # 結果のみを収集してファイル出力するためのバッファ
-    result_lines: List[str] = []
+    # デバイス自動選択（GPUがあればCUDA、なければCPU）
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    LOGGER.info(f"[v1] Selected device: {device}")
 
-    # 類似度を各モデルで算出（各モデルの失敗は他へ波及させない）
+    result_lines: List[str] = []
     def _print(name: str, val: Optional[float], human_ratio: Optional[float]) -> None:
         if val is None:
             msg = f"[{name}] FAILED"
@@ -261,7 +282,6 @@ def main():
         "NIST": [],
         "ROUGE-1 F1": [],
     }
-    # Add JaColBERT models
     compare_data["JaColBERTv2.5"] = []
     compare_data["JaColBERTv2"] = []
 
@@ -271,9 +291,9 @@ def main():
 
     for label, path_a, path_b in pairs:
         LOGGER.info("==================================================")
-        LOGGER.info(f"Pair: {label}")
-        LOGGER.info(f"Text A: {path_a}")
-        LOGGER.info(f"Text B: {path_b}")
+        LOGGER.info(f"[v1] Pair: {label}")
+        LOGGER.info(f"[v1] Text A: {path_a}")
+        LOGGER.info(f"[v1] Text B: {path_b}")
 
         # human_eval 正解率（normal_ratio）取得（自己チェックは N/A）
         m_date = re.fullmatch(r"\d{4}_\d{2}_\d{2}", label)
@@ -284,7 +304,7 @@ def main():
             text_a = _read_text(path_a, use_first_line=args.use_first_line)
             text_b = _read_text(path_b, use_first_line=args.use_first_line)
         except Exception:
-            LOGGER.exception("テキスト読み込みに失敗しました")
+            LOGGER.exception("[v1] テキスト読み込みに失敗しました")
             print(f"[{label}] FAILED to read texts")
             continue
 
@@ -303,142 +323,132 @@ def main():
             try:
                 sim_sar = sarashina.embed_and_score(text_a, text_b, device=device, task=args.task)
             except Exception:
-                LOGGER.exception("Sarashina-Embedding-v2-1B failed")
+                LOGGER.exception("[v1] Sarashina-Embedding-v2-1B failed")
             try:
                 sim_sar_v1 = sarashina_v1_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
             except Exception:
-                LOGGER.exception("Sarashina-Embedding-v1-1B failed")
+                LOGGER.exception("[v1] Sarashina-Embedding-v1-1B failed")
         else:
-            LOGGER.warning("Sarashina-Embedding-v2-1B skipped: flash-attn が現在の PyTorch/CUDA と非互換の可能性が高いためスキップします。")
+            LOGGER.warning("[v1] Sarashina-Embedding-v2-1B skipped: flash-attn と非互換の可能性のためスキップ")
             print("[Sarashina-Embedding-v2-1B] SKIPPED")
             print("[Sarashina-Embedding-v1-1B] SKIPPED")
 
-        if can_static:
+        if (st_ver := _detect_caps()[0]) >= (3, 3, 1):
             try:
                 sim_sta = static_mod.embed_and_score(text_a, text_b, device=device, truncate_dim=args.truncate_dim)
             except Exception:
-                LOGGER.exception("static-embedding-japanese failed")
+                LOGGER.exception("[v1] static-embedding-japanese failed")
         else:
-            LOGGER.warning("static-embedding-japanese skipped: sentence-transformers>=3.3.1 が必要です（現行環境では非対応）。")
+            LOGGER.warning("[v1] static-embedding-japanese skipped: sentence-transformers>=3.3.1 が必要です。")
             print("[static-embedding-japanese] SKIPPED (requires sentence-transformers>=3.3.1)")
 
         try:
             sim_ruri = ruri_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
         except Exception:
-            LOGGER.exception("ruri-base failed")
+            LOGGER.exception("[v1] ruri-base failed")
 
         try:
             sim_ruri_v3 = ruri3_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
         except Exception:
-            LOGGER.exception("ruri-v3-310m failed")
+            LOGGER.exception("[v1] ruri-v3-310m failed")
 
         try:
             sim_plamo = plamo_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
         except Exception:
-            LOGGER.exception("PLaMo-Embedding-1B failed")
+            LOGGER.exception("[v1] PLaMo-Embedding-1B failed")
 
         try:
             sim_e5 = e5_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
         except Exception:
-            LOGGER.exception("multilingual-e5-base failed")
+            LOGGER.exception("[v1] multilingual-e5-base failed")
         try:
             sim_e5_large = e5_large_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
         except Exception:
-            LOGGER.exception("multilingual-e5-large failed")
+            LOGGER.exception("[v1] multilingual-e5-large failed")
 
-        # GLuCoSE-base-ja-v2
         try:
             sim_glucose = glucose_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
         except Exception:
-            LOGGER.exception("GLuCoCE-base-ja-v2 failed")
+            LOGGER.exception("[v1] GLuCoSE-base-ja-v2 failed")
 
-        # OpenAI text-embedding-3-large (API)
         try:
-            # dimensions には --truncate-dim の値をそのまま利用（未指定ならデフォルト次元=3072）
             sim_openai = oai_emb.embed_and_score(text_a, text_b, dimensions=args.truncate_dim, device=device)
         except Exception:
-            LOGGER.exception("text-embedding-3-large failed")
+            LOGGER.exception("[v1] text-embedding-3-large failed")
 
-        if can_jina:
+        if (st_ver := _detect_caps()[0]) >= (3, 0, 0):
             try:
                 sim_jina = jina_mod.embed_and_score(text_a, text_b, device=device, task=args.task, truncate_dim=args.truncate_dim)
             except Exception:
-                LOGGER.exception("jina-embeddings-v3 failed")
+                LOGGER.exception("[v1] jina-embeddings-v3 failed")
         else:
-            LOGGER.warning("jina-embeddings-v3 skipped: sentence-transformers>=3.0 が必要です（現行環境では非対応）。")
+            LOGGER.warning("[v1] jina-embeddings-v3 skipped: sentence-transformers>=3.0 が必要です。")
             print("[jina-embeddings-v3] SKIPPED (requires sentence-transformers>=3.0)")
 
         try:
             sim_bge = bge_m3_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
         except Exception:
-            LOGGER.exception("BGE-M3 failed")
+            LOGGER.exception("[v1] BGE-M3 failed")
 
-        # JaColBERT family
         try:
             sim_jacolbert25 = jacolbert25_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
         except Exception as e:
-            LOGGER.warning(f"JaColBERTv2.5 skipped: {e}")
+            LOGGER.warning(f"[v1] JaColBERTv2.5 skipped: {e}")
         try:
             sim_jacolbert2 = jacolbert2_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
         except Exception as e:
-            LOGGER.warning(f"JaColBERTv2 skipped: {e}")
+            LOGGER.warning(f"[v1] JaColBERTv2 skipped: {e}")
 
-        if can_gemma:
+        if (caps := _detect_caps())[0] >= (3, 3, 1) or caps[1] >= (5, 1, 0):
             try:
                 sim_gemma = gemma_mod.embed_and_score(
                     text_a, text_b, device=device, task=args.task, truncate_dim=args.truncate_dim
                 )
             except Exception:
-                LOGGER.exception("embeddinggemma-300m failed")
+                LOGGER.exception("[v1] embeddinggemma-300m failed")
         else:
-            LOGGER.warning("embeddinggemma-300m skipped: Sentence-Transformers>=3.3.1 または Transformers>=5.1 が必要です。")
+            LOGGER.warning("[v1] embeddinggemma-300m skipped: ST>=3.3.1 または TF>=5.1 が必要です。")
             print("[embeddinggemma-300m] SKIPPED (requires Sentence-Transformers>=3.3.1 or Transformers>=5.1)")
 
-        # unsup-simcse-ja-large
         try:
             sim_simcse = simcse_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
         except Exception:
-            LOGGER.exception("unsup-simcse-ja-large failed")
+            LOGGER.exception("[v1] unsup-simcse-ja-large failed")
 
-        # simcse-ja-bert-base-clcmlp
         try:
             sim_simcse_bert = simcse_bert_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
         except Exception:
-            LOGGER.exception("simcse-ja-bert-base-clcmlp failed")
+            LOGGER.exception("[v1] simcse-ja-bert-base-clcmlp failed")
 
-        # sentence-bert-base-ja-mean-tokens-v2
         try:
             sim_sbert = sbert_v2_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
         except Exception:
-            LOGGER.exception("sentence-bert-base-ja-mean-tokens-v2 failed")
+            LOGGER.exception("[v1] sentence-bert-base-ja-mean-tokens-v2 failed")
 
-        # sbert-base-ja
         try:
             sim_sbert_base = sbert_base_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
         except Exception:
-            LOGGER.exception("sbert-base-ja failed")
+            LOGGER.exception("[v1] sbert-base-ja failed")
 
-        # sbert-jsnli-luke-japanese-base-lite
         try:
             sim_sbert_luke = sbert_luke_lite_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
         except Exception:
-            LOGGER.exception("sbert-jsnli-luke-japanese-base-lite failed")
+            LOGGER.exception("[v1] sbert-jsnli-luke-japanese-base-lite failed")
 
-        # Text metrics (BLEU/NIST/ROUGE-1 F1)
         try:
             sim_bleu = bleu_mod.embed_and_score(text_a, text_b, device=device, task=args.task, truncate_dim=args.truncate_dim)
         except Exception:
-            LOGGER.exception("BLEU failed")
+            LOGGER.exception("[v1] BLEU failed")
         try:
             sim_nist = nist_mod.embed_and_score(text_a, text_b, device=device, task=args.task, truncate_dim=args.truncate_dim)
         except Exception:
-            LOGGER.exception("NIST failed")
+            LOGGER.exception("[v1] NIST failed")
         try:
             sim_rouge = rouge1_mod.embed_and_score(text_a, text_b, device=device, task=args.task, truncate_dim=args.truncate_dim)
         except Exception:
-            LOGGER.exception("ROUGE-1 F1 failed")
+            LOGGER.exception("[v1] ROUGE-1 F1 failed")
 
-        # 集計（人手評価があり、スコアが算出できたもののみ）
+        # 人手評価（ある日付のみ）
         if human_ratio is not None:
             if sim_sar is not None: compare_data["Sarashina-Embedding-v2-1B"].append((human_ratio, sim_sar))
             if sim_sar_v1 is not None: compare_data["Sarashina-Embedding-v1-1B"].append((human_ratio, sim_sar_v1))
@@ -466,7 +476,6 @@ def main():
 
         print(f"----- Results: {label} -----")
         result_lines.append(f"----- Results: {label} -----")
-        # Compared texts (the exact strings used for scoring)
         result_lines.append(f"Text A path: {path_a}")
         result_lines.append(f"Text B path: {path_b}")
         result_lines.append("Text A (used):")
@@ -518,7 +527,6 @@ def main():
     for model_name, data in compare_data.items():
         corr_results[model_name] = _pearson(data)
 
-    # ベストモデル選定（最も相関が高いモデル）
     best_model = None
     best_corr = None
     for name, r in corr_results.items():
@@ -530,11 +538,9 @@ def main():
 
     print("===== Summary: human_eval 正解率との相関（Pearson） ランキング順=====")
     result_lines.append("===== Summary: human_eval 正解率との相関（Pearson） ランキング順=====")
-    # Write the exact Pearson correlation formula used
     result_lines.append("Pearson correlation formula:")
     result_lines.append("r = sum_i (x_i - mean_x) * (y_i - mean_y) / sqrt( sum_i (x_i - mean_x)^2 * sum_i (y_i - mean_y)^2 )")
     result_lines.append("where x_i = human_eval normal_ratio for date i, y_i = model score for the same date i.")
-    # ランキング（相関が計算できたモデルのみ、降順）
     valid = [(name, r) for name, r in corr_results.items() if r is not None]
     valid.sort(key=lambda x: x[1], reverse=True)
     for idx, (name, r) in enumerate(valid, start=1):
@@ -542,7 +548,6 @@ def main():
         print(line)
         result_lines.append(line)
 
-    # 相関が計算できなかったモデル群（N/A）も参考として列挙
     na_models = [name for name, r in corr_results.items() if r is None]
     if na_models:
         line = "- N/A: " + ", ".join(na_models)
@@ -560,7 +565,6 @@ def main():
     print(expl)
     result_lines.append(expl)
 
-    # 結果のみのログを書き出し
     try:
         out_path = os.path.join(_THIS_DIR, "result_v1.log")
         with open(out_path, "w", encoding="utf-8") as f:
@@ -568,6 +572,394 @@ def main():
         print(f"[results] Written to: {out_path}")
     except Exception as e:
         print(f"[results] Failed to write result_v1.log: {e}")
+
+
+# ===== LLM 生成 + 評価（v2 追加） =====
+
+def _ensure_dir(p: str) -> None:
+    os.makedirs(p, exist_ok=True)
+
+def _date_key_from_numeric_filename(fname: str) -> Optional[str]:
+    """
+    '2022-1-1.txt' のようなファイル名から '2022_01_01' に変換。
+    """
+    m = re.fullmatch(r"(\d{4})-(\d{1,2})-(\d{1,2})\.txt", fname)
+    if not m:
+        return None
+    y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    return f"{y:04d}_{mo:02d}_{d:02d}"
+
+def _scan_comment_maps() -> Tuple[Dict[str, str], Dict[str, str]]:
+    """
+    return (gen_map, org_map)
+    - gen_map: YYYY_MM_DD -> ./data/generate_comment/{date}_gpt_generate_v4.txt
+    - org_map: YYYY_MM_DD -> ./data/original_comment/{date}_original.txt
+    """
+    gen_dir = os.path.join(_THIS_DIR, "data", "generate_comment")
+    org_dir = os.path.join(_THIS_DIR, "data", "original_comment")
+    gen_pat = re.compile(r"^(\d{4}_\d{2}_\d{2})_gpt_generate_v4\.txt$")
+    org_pat = re.compile(r"^(\d{4}_\d{2}_\d{2})_original\.txt$")
+
+    gen_map: Dict[str, str] = {}
+    org_map: Dict[str, str] = {}
+
+    if os.path.isdir(gen_dir):
+        for fname in os.listdir(gen_dir):
+            m = gen_pat.match(fname)
+            if m:
+                date = m.group(1)
+                gen_map[date] = os.path.join(gen_dir, fname)
+    if os.path.isdir(org_dir):
+        for fname in os.listdir(org_dir):
+            m = org_pat.match(fname)
+            if m:
+                date = m.group(1)
+                org_map[date] = os.path.join(org_dir, fname)
+    return gen_map, org_map
+
+
+def _score_and_log_all_models(
+    text_a: str,
+    text_b: str,
+    args: argparse.Namespace,
+    device: str,
+    can_sarashina: bool,
+    can_static: bool,
+    can_jina: bool,
+    can_gemma: bool,
+    result_lines: List[str],
+    human_ratio: Optional[float] = None,
+) -> None:
+    """
+    main_v1 と同等の全モデルスコア算出とログ追加。
+    """
+    def _print(name: str, val: Optional[float], human_ratio: Optional[float]) -> None:
+        if val is None:
+            msg = f"[{name}] FAILED"
+        else:
+            msg = f"[{name}] Score: {val:.6f}"
+        if human_ratio is None:
+            msg += " | human_eval: N/A"
+        else:
+            msg += f" | human_eval normal_ratio: {human_ratio:.6f}"
+        print(msg)
+        result_lines.append(msg)
+
+    sim_sar_v1 = sim_sar = sim_sta = sim_ruri = sim_ruri_v3 = sim_plamo = sim_e5 = sim_e5_large = sim_jina = sim_bge = sim_gemma = sim_glucose = sim_openai = sim_simcse = sim_simcse_bert = None
+    sim_sbert = sim_sbert_base = None
+    sim_sbert_luke = None
+    sim_bleu = sim_nist = sim_rouge = None
+    sim_jacolbert25 = sim_jacolbert2 = None
+
+    if can_sarashina:
+        try:
+            sim_sar = sarashina.embed_and_score(text_a, text_b, device=device, task=args.task)
+        except Exception:
+            LOGGER.exception("Sarashina-Embedding-v2-1B failed")
+        try:
+            sim_sar_v1 = sarashina_v1_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
+        except Exception:
+            LOGGER.exception("Sarashina-Embedding-v1-1B failed")
+    else:
+        LOGGER.warning("Sarashina-Embedding skipped")
+        print("[Sarashina-Embedding-v2-1B] SKIPPED")
+        print("[Sarashina-Embedding-v1-1B] SKIPPED")
+
+    if can_static:
+        try:
+            sim_sta = static_mod.embed_and_score(text_a, text_b, device=device, truncate_dim=args.truncate_dim)
+        except Exception:
+            LOGGER.exception("static-embedding-japanese failed")
+    else:
+        LOGGER.warning("static-embedding-japanese skipped: sentence-transformers>=3.3.1 が必要です。")
+        print("[static-embedding-japanese] SKIPPED (requires sentence-transformers>=3.3.1)")
+
+    try:
+        sim_ruri = ruri_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
+    except Exception:
+        LOGGER.exception("ruri-base failed")
+
+    try:
+        sim_ruri_v3 = ruri3_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
+    except Exception:
+        LOGGER.exception("ruri-v3-310m failed")
+
+    try:
+        sim_plamo = plamo_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
+    except Exception:
+        LOGGER.exception("PLaMo-Embedding-1B failed")
+
+    try:
+        sim_e5 = e5_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
+    except Exception:
+        LOGGER.exception("multilingual-e5-base failed")
+    try:
+        sim_e5_large = e5_large_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
+    except Exception:
+        LOGGER.exception("multilingual-e5-large failed")
+
+    try:
+        sim_glucose = glucose_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
+    except Exception:
+        LOGGER.exception("GLuCoSE-base-ja-v2 failed")
+
+    try:
+        sim_openai = oai_emb.embed_and_score(text_a, text_b, dimensions=args.truncate_dim, device=device)
+    except Exception:
+        LOGGER.exception("text-embedding-3-large failed")
+
+    if can_jina:
+        try:
+            sim_jina = jina_mod.embed_and_score(text_a, text_b, device=device, task=args.task, truncate_dim=args.truncate_dim)
+        except Exception:
+            LOGGER.exception("jina-embeddings-v3 failed")
+    else:
+        LOGGER.warning("jina-embeddings-v3 skipped: sentence-transformers>=3.0 が必要です。")
+        print("[jina-embeddings-v3] SKIPPED (requires sentence-transformers>=3.0)")
+
+    try:
+        sim_bge = bge_m3_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
+    except Exception:
+        LOGGER.exception("BGE-M3 failed")
+
+    try:
+        sim_jacolbert25 = jacolbert25_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
+    except Exception as e:
+        LOGGER.warning(f"JaColBERTv2.5 skipped: {e}")
+    try:
+        sim_jacolbert2 = jacolbert2_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
+    except Exception as e:
+        LOGGER.warning(f"JaColBERTv2 skipped: {e}")
+
+    if can_gemma:
+        try:
+            sim_gemma = gemma_mod.embed_and_score(
+                text_a, text_b, device=device, task=args.task, truncate_dim=args.truncate_dim
+            )
+        except Exception:
+            LOGGER.exception("embeddinggemma-300m failed")
+    else:
+        LOGGER.warning("embeddinggemma-300m skipped: ST>=3.3.1 または TF>=5.1 が必要です。")
+        print("[embeddinggemma-300m] SKIPPED (requires Sentence-Transformers>=3.3.1 or Transformers>=5.1)")
+
+    try:
+        sim_simcse = simcse_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
+    except Exception:
+        LOGGER.exception("unsup-simcse-ja-large failed")
+
+    try:
+        sim_simcse_bert = simcse_bert_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
+    except Exception:
+        LOGGER.exception("simcse-ja-bert-base-clcmlp failed")
+
+    try:
+        sim_sbert = sbert_v2_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
+    except Exception:
+        LOGGER.exception("sentence-bert-base-ja-mean-tokens-v2 failed")
+
+    try:
+        sim_sbert_base = sbert_base_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
+    except Exception:
+        LOGGER.exception("sbert-base-ja failed")
+
+    try:
+        sim_sbert_luke = sbert_luke_lite_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
+    except Exception:
+        LOGGER.exception("sbert-jsnli-luke-japanese-base-lite failed")
+
+    try:
+        sim_bleu = bleu_mod.embed_and_score(text_a, text_b, device=device, task=args.task, truncate_dim=args.truncate_dim)
+    except Exception:
+        LOGGER.exception("BLEU failed")
+    try:
+        sim_nist = nist_mod.embed_and_score(text_a, text_b, device=device, task=args.task, truncate_dim=args.truncate_dim)
+    except Exception:
+        LOGGER.exception("NIST failed")
+    try:
+        sim_rouge = rouge1_mod.embed_and_score(text_a, text_b, device=device, task=args.task, truncate_dim=args.truncate_dim)
+    except Exception:
+        LOGGER.exception("ROUGE-1 F1 failed")
+
+    _print("Sarashina-Embedding-v1-1B", sim_sar_v1, human_ratio)
+    _print("Sarashina-Embedding-v2-1B", sim_sar, human_ratio)
+    _print("static-embedding-japanese", sim_sta, human_ratio)
+    _print("ruri-base", sim_ruri, human_ratio)
+    _print("ruri-v3-310m", sim_ruri_v3, human_ratio)
+    _print("PLaMo-Embedding-1B", sim_plamo, human_ratio)
+    _print("multilingual-e5-base", sim_e5, human_ratio)
+    _print("multilingual-e5-large", sim_e5_large, human_ratio)
+    _print("GLuCoSE-base-ja-v2", sim_glucose, human_ratio)
+    _print("jina-embeddings-v3", sim_jina, human_ratio)
+    _print("BGE-M3", sim_bge, human_ratio)
+    _print("JaColBERTv2.5", sim_jacolbert25, human_ratio)
+    _print("JaColBERTv2", sim_jacolbert2, human_ratio)
+    _print("embeddinggemma-300m", sim_gemma, human_ratio)
+    _print("text-embedding-3-large", sim_openai, human_ratio)
+    _print("unsup-simcse-ja-large", sim_simcse, human_ratio)
+    _print("simcse-ja-bert-base-clcmlp", sim_simcse_bert, human_ratio)
+    _print("sentence-bert-base-ja-mean-tokens-v2", sim_sbert, human_ratio)
+    _print("sbert-base-ja", sim_sbert_base, human_ratio)
+    _print("sbert-jsnli-luke-japanese-base-lite", sim_sbert_luke, human_ratio)
+    _print("BLEU", sim_bleu, human_ratio)
+    _print("NIST", sim_nist, human_ratio)
+    _print("ROUGE-1 F1", sim_rouge, human_ratio)
+
+
+def run_llm_generation_and_evaluation(args: argparse.Namespace) -> None:
+    """
+    - data/Numerical_weather_data の各 .txt と data/prompt_gpt/v4_instruction.txt を連結し LLM 実行
+    - 出力を保存
+    - original_comment / generate_comment との類似度を main_v1 と同じ評価系で算出
+    """
+    # デバイスと能力検出は v1 に合わせる
+    st_ver, tf_ver, has_flash_attn = _detect_caps()
+    can_static = st_ver >= (3, 3, 1)
+    can_jina = st_ver >= (3, 0, 0)
+    can_gemma = (st_ver >= (3, 3, 1)) or (tf_ver >= (5, 1, 0))
+    can_sarashina = (tf_ver >= (4, 45, 0)) and (not has_flash_attn)
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    LOGGER.info(f"[v2] Selected device: {device}")
+
+    numeric_dir = os.path.join(_THIS_DIR, "data", "Numerical_weather_data")
+    instruction_path = os.path.join(_THIS_DIR, "data", "prompt_gpt", "v4_instruction.txt")
+    out_dir = os.path.join(_THIS_DIR, "data", "llm_outputs", "weblab10b")
+    _ensure_dir(out_dir)
+
+    # コメントの参照パスをマップ化
+    gen_map, org_map = _scan_comment_maps()
+
+    # LLM 生成
+    produced_map: Dict[str, str] = {}  # date_key -> out_path
+    if not os.path.isdir(numeric_dir):
+        raise RuntimeError(f"Numerical_weather_data ディレクトリが見つかりません: {numeric_dir}")
+
+    for fname in sorted(os.listdir(numeric_dir)):
+        date_key = _date_key_from_numeric_filename(fname)
+        if not date_key:
+            # 想定外のファイル名はスキップ
+            continue
+        numeric_path = os.path.join(numeric_dir, fname)
+        LOGGER.info(f"[v2] Generating for {date_key} from: {numeric_path}")
+        try:
+            text_out = llmjp.generate_from_files(
+                numeric_data_path=numeric_path,
+                instruction_path=instruction_path,
+                max_new_tokens=args.llm_max_new_tokens,
+                temperature=args.llm_temperature,
+            )
+        except Exception:
+            LOGGER.exception(f"[v2] LLM generation failed: {date_key}")
+            continue
+        out_path = os.path.join(out_dir, f"{date_key}_weblab10b.txt")
+        try:
+            with open(out_path, "w", encoding="utf-8") as f:
+                f.write(text_out.strip() + "\n")
+            produced_map[date_key] = out_path
+            LOGGER.info(f"[v2] Written: {out_path}")
+        except Exception:
+            LOGGER.exception(f"[v2] Failed to write output: {out_path}")
+
+    if not produced_map:
+        print("[v2] 生成結果がありません。ファイル名形式やモデルのロードに失敗していないか確認してください。")
+        return
+
+    # 評価
+    result_lines: List[str] = []
+    human_csv_path = os.path.join(_THIS_DIR, "data", "human_eval.csv")
+    human_map = load_human_eval(human_csv_path)
+
+    for date_key, llm_path in sorted(produced_map.items()):
+        try:
+            llm_text = _read_text(llm_path, use_first_line=False)
+        except Exception:
+            LOGGER.exception(f"[v2] 読み込み失敗: {llm_path}")
+            continue
+
+        # 1) LLM vs ORIGINAL
+        org_path = org_map.get(date_key)
+        if org_path and os.path.isfile(org_path):
+            try:
+                org_text = _read_text(org_path, use_first_line=False)
+            except Exception:
+                LOGGER.exception(f"[v2] original 読み込み失敗: {org_path}")
+                org_text = ""
+            if org_text:
+                human_ratio = human_map.get((date_key, "gpt v4 Comment:"))  # human_eval は gpt v4 参照のみ
+                print(f"----- LLM vs ORIGINAL Results: {date_key} -----")
+                result_lines.append(f"----- LLM vs ORIGINAL Results: {date_key} -----")
+                result_lines.append(f"LLM out path: {llm_path}")
+                result_lines.append(f"Original path: {org_path}")
+                result_lines.append("LLM text (used):")
+                result_lines.append(llm_text)
+                result_lines.append("Original text (used):")
+                result_lines.append(org_text)
+                _score_and_log_all_models(
+                    text_a=llm_text,
+                    text_b=org_text,
+                    args=args,
+                    device=device,
+                    can_sarashina=can_sarashina,
+                    can_static=can_static,
+                    can_jina=can_jina,
+                    can_gemma=can_gemma,
+                    result_lines=result_lines,
+                    human_ratio=human_ratio,
+                )
+                print("")
+
+        # 2) LLM vs GPTv4 generate_comment
+        gen_path = gen_map.get(date_key)
+        if gen_path and os.path.isfile(gen_path):
+            try:
+                gen_text = _read_text(gen_path, use_first_line=False)
+            except Exception:
+                LOGGER.exception(f"[v2] generate_comment 読み込み失敗: {gen_path}")
+                gen_text = ""
+            if gen_text:
+                human_ratio = human_map.get((date_key, "gpt v4 Comment:"))
+                print(f"----- LLM vs GPTv4 Results: {date_key} -----")
+                result_lines.append(f"----- LLM vs GPTv4 Results: {date_key} -----")
+                result_lines.append(f"LLM out path: {llm_path}")
+                result_lines.append(f"GPTv4 path: {gen_path}")
+                result_lines.append("LLM text (used):")
+                result_lines.append(llm_text)
+                result_lines.append("GPTv4 text (used):")
+                result_lines.append(gen_text)
+                _score_and_log_all_models(
+                    text_a=llm_text,
+                    text_b=gen_text,
+                    args=args,
+                    device=device,
+                    can_sarashina=can_sarashina,
+                    can_static=can_static,
+                    can_jina=can_jina,
+                    can_gemma=can_gemma,
+                    result_lines=result_lines,
+                    human_ratio=human_ratio,
+                )
+                print("")
+
+    # LLM 評価結果の保存
+    try:
+        out_path = os.path.join(_THIS_DIR, "result_v2.log")
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(result_lines) + "\n")
+        print(f"[v2 results] Written to: {out_path}")
+    except Exception as e:
+        print(f"[v2 results] Failed to write result_v2.log: {e}")
+
+
+def main():
+    args = parse_args()
+
+    # LLM 実行（指定時）
+    if args.run_llm:
+        run_llm_generation_and_evaluation(args)
+
+    # 従来の v1 評価（スキップ指定が無ければ実行）
+    if not args.skip_v1:
+        run_v1_evaluation(args)
 
 
 if __name__ == "__main__":
