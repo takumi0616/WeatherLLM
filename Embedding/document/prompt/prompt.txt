@@ -1,22 +1,42 @@
-src/WeatherLLM/Embedding/document/GLuCoSE-base-ja-v2.pdf
+@/src/WeatherLLM/Embedding/document/JaColBERTv2.5.pdf
+@/src/WeatherLLM/Embedding/document/JaColBERTv2.pdf
 
 上記のモデルを自分の環境で使用可能にしたいです
 huggingfaceの利用方法は以下のプログラムを参考にしてください
-src/WeatherLLM/llava.py
+@/src/WeatherLLM/llava.py
 
-お願いしたい処理として、まず、GLuCoSE-base-ja-v2を使用可能にするプログラムをsrc/WeatherLLM/Embedding/model/GLuCoSE_base_ja_v2.pyに作成してください
-この中にGLuCoSE-base-ja-v2を呼び出せる関数処理のようなものを作成してください（huggingfaceから持ってきて使用可能（すでにダウンロードしたものがある場合はそれを使う）にして、文章を2つ入力とすると、コサイン類似度を出力とするところまでを行う処理）
-embeddingmodelを実際に呼び出すのはsrc/WeatherLLM/Embedding/main_v1.pyにしてください（現状あるモデルに追加してください）
-このプログラムでは、src/WeatherLLM/Embedding/model/GLuCoSE_base_ja_v2.pyを読み込んでくる、また、比べる2つの文章を以下から引っ張ってくる
-./data/generate_comment/2022_01_01_gpt_generate_v4.txt
-./data/original_comment/2022_01_01_original.txt
+お願いしたい処理として、まず、JaColBERTv2.5およびJaColBERTv2を使用可能にするプログラムを@/src/WeatherLLM/Embedding/model/JaColBERTv2_5.py およびJaColBERTv2.pyに作成してください
+この中にJaColBERTv2.5およびJaColBERTv2を呼び出せる関数処理のようなものを作成してください（huggingfaceから持ってきて使用可能（すでにダウンロードしたものがある場合はそれを使う）にして、文章を2つ入力とすると、コサイン類似度を出力とするところまでを行う処理）
+embeddingmodelを実際に呼び出すのは@/src/WeatherLLM/Embedding/main_v1.py にしてください（現状あるモデルにそのまま追加してください）
 呼び出したモデルと2つの文章を比べてスコアを出すようにしたいです
 環境の重要なライブラリのバージョンは以下です
 Transformers: 4.57.0
 Sentence-Transformers: 5.1.1
 
-現状、static_embedding_japanese.pyとSarashina_Embedding_v2_1B.py、ruri_base.py、PLaMo_Embedding_1B.py、Multilingual_E5_base.py、jina_embeddings_v3.pyがあるので参考にしてみてください
+現状、以下の他のモデルがあるので参考にしてみてください
+@/src/WeatherLLM/Embedding/model/text_metrics_common.py
+@/src/WeatherLLM/Embedding/model/text_embedding_3_large.py
+@/src/WeatherLLM/Embedding/model/static_embedding_japanese.py
+@/src/WeatherLLM/Embedding/model/Sarashina_Embedding_v2_1B.py
+@/src/WeatherLLM/Embedding/model/ruri_base.py
+@/src/WeatherLLM/Embedding/model/rouge1_f1.py
+@/src/WeatherLLM/Embedding/model/PLaMo_Embedding_1B.py
+@/src/WeatherLLM/Embedding/model/nist.py
+@/src/WeatherLLM/Embedding/model/Multilingual_E5_base.py
+@/src/WeatherLLM/Embedding/model/jina_embeddings_v3.py
+@/src/WeatherLLM/Embedding/model/GLuCoSE_base_ja_v2.py
+@/src/WeatherLLM/Embedding/model/embeddinggemma_300m.py
+@/src/WeatherLLM/Embedding/model/bleu.py
+@/src/WeatherLLM/Embedding/model/BGE_M3.py
+@/src/WeatherLLM/Embedding/model/ruri_v3_310m.py
+@/src/WeatherLLM/Embedding/model/unsup_simcse_ja_large.py
+@/src/WeatherLLM/Embedding/model/simcse_ja_bert_base_clcmlp.py
+@/src/WeatherLLM/Embedding/model/sentence_bert_base_ja_mean_tokens_v2.py
+@/src/WeatherLLM/Embedding/model/sbert_jsnli_luke_japanese_base_lite.py
+@/src/WeatherLLM/Embedding/model/sarashina_embedding_v1_1B.py
+@/src/WeatherLLM/Embedding/model/sbert_base_ja.py
 
 上記のプログラムやファイルを完成させてください
 きちんと上のパスのファイルやプログラムを必ずみてから、増俸を集めてからタスクを行い始めてください
+コマンドによる実行は行わないでください、自分で実行します
 日本語で解説

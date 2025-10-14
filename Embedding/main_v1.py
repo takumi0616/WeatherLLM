@@ -13,6 +13,7 @@ Sarashina-Embedding-v2-1B を使って2つの文章の類似度（コサイン�
 実行例:
 nohup python main_v1.py > main_v1.log 2>&1 &
 
+pkill -f "main_v1.py"
 """
 
 import os
@@ -37,10 +38,13 @@ os.environ.setdefault("TRANSFORMERS_NO_TORCHVISION", "1")
 
 # モデルラッパを通常 import
 from model import Sarashina_Embedding_v2_1B as sarashina
+from model import sarashina_embedding_v1_1B as sarashina_v1_mod
 from model import static_embedding_japanese as static_mod
 from model import ruri_base as ruri_mod
+from model import ruri_v3_310m as ruri3_mod
 from model import PLaMo_Embedding_1B as plamo_mod
 from model import Multilingual_E5_base as e5_mod
+from model import multilingual_e5_large as e5_large_mod
 from model import jina_embeddings_v3 as jina_mod
 from model import BGE_M3 as bge_m3_mod
 from model import embeddinggemma_300m as gemma_mod
@@ -49,6 +53,13 @@ from model import text_embedding_3_large as oai_emb
 from model import bleu as bleu_mod
 from model import nist as nist_mod
 from model import rouge1_f1 as rouge1_mod
+from model import unsup_simcse_ja_large as simcse_mod
+from model import simcse_ja_bert_base_clcmlp as simcse_bert_mod
+from model import sentence_bert_base_ja_mean_tokens_v2 as sbert_v2_mod
+from model import sbert_jsnli_luke_japanese_base_lite as sbert_luke_lite_mod
+from model import sbert_base_ja as sbert_base_mod
+from model import JaColBERTv2_5 as jacolbert25_mod
+from model import JaColBERTv2 as jacolbert2_mod
 
 LOGGER = setup_logger("embedding_main")
 
@@ -229,19 +240,30 @@ def main():
     # 集計用: 各モデル -> [(human_ratio, model_score), ...]
     compare_data: Dict[str, List[Tuple[float, float]]] = {
         "Sarashina-Embedding-v2-1B": [],
+        "Sarashina-Embedding-v1-1B": [],
         "static-embedding-japanese": [],
         "ruri-base": [],
+        "ruri-v3-310m": [],
         "PLaMo-Embedding-1B": [],
         "multilingual-e5-base": [],
+        "multilingual-e5-large": [],
         "GLuCoSE-base-ja-v2": [],
         "jina-embeddings-v3": [],
         "BGE-M3": [],
         "embeddinggemma-300m": [],
         "text-embedding-3-large": [],
+        "unsup-simcse-ja-large": [],
+        "simcse-ja-bert-base-clcmlp": [],
+        "sentence-bert-base-ja-mean-tokens-v2": [],
+        "sbert-base-ja": [],
+        "sbert-jsnli-luke-japanese-base-lite": [],
         "BLEU": [],
         "NIST": [],
         "ROUGE-1 F1": [],
     }
+    # Add JaColBERT models
+    compare_data["JaColBERTv2.5"] = []
+    compare_data["JaColBERTv2"] = []
 
     pairs = resolve_pair_paths()
     if not pairs:
@@ -270,17 +292,26 @@ def main():
             print(f"[{label}] Skipped: 入力文章が空です。--use-first-line を外す/付けるなど調整してください。")
             continue
 
-        sim_sar = sim_sta = sim_ruri = sim_plamo = sim_e5 = sim_jina = sim_bge = sim_gemma = sim_glucose = sim_openai = None
+        sim_sar_v1 = sim_sar = sim_sta = sim_ruri = sim_ruri_v3 = sim_plamo = sim_e5 = sim_e5_large = sim_jina = sim_bge = sim_gemma = sim_glucose = sim_openai = sim_simcse = sim_simcse_bert = None
+        sim_sbert = sim_sbert_base = None
+        sim_sbert_luke = None
         sim_bleu = sim_nist = sim_rouge = None
+
+        sim_jacolbert25 = sim_jacolbert2 = None
 
         if can_sarashina:
             try:
                 sim_sar = sarashina.embed_and_score(text_a, text_b, device=device, task=args.task)
             except Exception:
                 LOGGER.exception("Sarashina-Embedding-v2-1B failed")
+            try:
+                sim_sar_v1 = sarashina_v1_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
+            except Exception:
+                LOGGER.exception("Sarashina-Embedding-v1-1B failed")
         else:
             LOGGER.warning("Sarashina-Embedding-v2-1B skipped: flash-attn が現在の PyTorch/CUDA と非互換の可能性が高いためスキップします。")
             print("[Sarashina-Embedding-v2-1B] SKIPPED")
+            print("[Sarashina-Embedding-v1-1B] SKIPPED")
 
         if can_static:
             try:
@@ -297,6 +328,11 @@ def main():
             LOGGER.exception("ruri-base failed")
 
         try:
+            sim_ruri_v3 = ruri3_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
+        except Exception:
+            LOGGER.exception("ruri-v3-310m failed")
+
+        try:
             sim_plamo = plamo_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
         except Exception:
             LOGGER.exception("PLaMo-Embedding-1B failed")
@@ -305,6 +341,10 @@ def main():
             sim_e5 = e5_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
         except Exception:
             LOGGER.exception("multilingual-e5-base failed")
+        try:
+            sim_e5_large = e5_large_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
+        except Exception:
+            LOGGER.exception("multilingual-e5-large failed")
 
         # GLuCoSE-base-ja-v2
         try:
@@ -333,6 +373,16 @@ def main():
         except Exception:
             LOGGER.exception("BGE-M3 failed")
 
+        # JaColBERT family
+        try:
+            sim_jacolbert25 = jacolbert25_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
+        except Exception as e:
+            LOGGER.warning(f"JaColBERTv2.5 skipped: {e}")
+        try:
+            sim_jacolbert2 = jacolbert2_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
+        except Exception as e:
+            LOGGER.warning(f"JaColBERTv2 skipped: {e}")
+
         if can_gemma:
             try:
                 sim_gemma = gemma_mod.embed_and_score(
@@ -343,6 +393,36 @@ def main():
         else:
             LOGGER.warning("embeddinggemma-300m skipped: Sentence-Transformers>=3.3.1 または Transformers>=5.1 が必要です。")
             print("[embeddinggemma-300m] SKIPPED (requires Sentence-Transformers>=3.3.1 or Transformers>=5.1)")
+
+        # unsup-simcse-ja-large
+        try:
+            sim_simcse = simcse_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
+        except Exception:
+            LOGGER.exception("unsup-simcse-ja-large failed")
+
+        # simcse-ja-bert-base-clcmlp
+        try:
+            sim_simcse_bert = simcse_bert_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
+        except Exception:
+            LOGGER.exception("simcse-ja-bert-base-clcmlp failed")
+
+        # sentence-bert-base-ja-mean-tokens-v2
+        try:
+            sim_sbert = sbert_v2_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
+        except Exception:
+            LOGGER.exception("sentence-bert-base-ja-mean-tokens-v2 failed")
+
+        # sbert-base-ja
+        try:
+            sim_sbert_base = sbert_base_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
+        except Exception:
+            LOGGER.exception("sbert-base-ja failed")
+
+        # sbert-jsnli-luke-japanese-base-lite
+        try:
+            sim_sbert_luke = sbert_luke_lite_mod.embed_and_score(text_a, text_b, device=device, task=args.task)
+        except Exception:
+            LOGGER.exception("sbert-jsnli-luke-japanese-base-lite failed")
 
         # Text metrics (BLEU/NIST/ROUGE-1 F1)
         try:
@@ -361,15 +441,25 @@ def main():
         # 集計（人手評価があり、スコアが算出できたもののみ）
         if human_ratio is not None:
             if sim_sar is not None: compare_data["Sarashina-Embedding-v2-1B"].append((human_ratio, sim_sar))
+            if sim_sar_v1 is not None: compare_data["Sarashina-Embedding-v1-1B"].append((human_ratio, sim_sar_v1))
             if sim_sta is not None: compare_data["static-embedding-japanese"].append((human_ratio, sim_sta))
             if sim_ruri is not None: compare_data["ruri-base"].append((human_ratio, sim_ruri))
+            if sim_ruri_v3 is not None: compare_data["ruri-v3-310m"].append((human_ratio, sim_ruri_v3))
             if sim_plamo is not None: compare_data["PLaMo-Embedding-1B"].append((human_ratio, sim_plamo))
             if sim_e5 is not None: compare_data["multilingual-e5-base"].append((human_ratio, sim_e5))
+            if sim_e5_large is not None: compare_data["multilingual-e5-large"].append((human_ratio, sim_e5_large))
             if sim_glucose is not None: compare_data["GLuCoSE-base-ja-v2"].append((human_ratio, sim_glucose))
             if sim_jina is not None: compare_data["jina-embeddings-v3"].append((human_ratio, sim_jina))
             if sim_bge is not None: compare_data["BGE-M3"].append((human_ratio, sim_bge))
+            if sim_jacolbert25 is not None: compare_data["JaColBERTv2.5"].append((human_ratio, sim_jacolbert25))
+            if sim_jacolbert2 is not None: compare_data["JaColBERTv2"].append((human_ratio, sim_jacolbert2))
             if sim_gemma is not None: compare_data["embeddinggemma-300m"].append((human_ratio, sim_gemma))
             if sim_openai is not None: compare_data["text-embedding-3-large"].append((human_ratio, sim_openai))
+            if sim_simcse is not None: compare_data["unsup-simcse-ja-large"].append((human_ratio, sim_simcse))
+            if sim_simcse_bert is not None: compare_data["simcse-ja-bert-base-clcmlp"].append((human_ratio, sim_simcse_bert))
+            if sim_sbert is not None: compare_data["sentence-bert-base-ja-mean-tokens-v2"].append((human_ratio, sim_sbert))
+            if sim_sbert_base is not None: compare_data["sbert-base-ja"].append((human_ratio, sim_sbert_base))
+            if sim_sbert_luke is not None: compare_data["sbert-jsnli-luke-japanese-base-lite"].append((human_ratio, sim_sbert_luke))
             if sim_bleu is not None: compare_data["BLEU"].append((human_ratio, sim_bleu))
             if sim_nist is not None: compare_data["NIST"].append((human_ratio, sim_nist))
             if sim_rouge is not None: compare_data["ROUGE-1 F1"].append((human_ratio, sim_rouge))
@@ -383,16 +473,26 @@ def main():
         result_lines.append(text_a)
         result_lines.append("Text B (used):")
         result_lines.append(text_b)
+        _print("Sarashina-Embedding-v1-1B", sim_sar_v1, human_ratio)
         _print("Sarashina-Embedding-v2-1B", sim_sar, human_ratio)
         _print("static-embedding-japanese", sim_sta, human_ratio)
         _print("ruri-base", sim_ruri, human_ratio)
+        _print("ruri-v3-310m", sim_ruri_v3, human_ratio)
         _print("PLaMo-Embedding-1B", sim_plamo, human_ratio)
         _print("multilingual-e5-base", sim_e5, human_ratio)
+        _print("multilingual-e5-large", sim_e5_large, human_ratio)
         _print("GLuCoSE-base-ja-v2", sim_glucose, human_ratio)
         _print("jina-embeddings-v3", sim_jina, human_ratio)
         _print("BGE-M3", sim_bge, human_ratio)
+        _print("JaColBERTv2.5", sim_jacolbert25, human_ratio)
+        _print("JaColBERTv2", sim_jacolbert2, human_ratio)
         _print("embeddinggemma-300m", sim_gemma, human_ratio)
         _print("text-embedding-3-large", sim_openai, human_ratio)
+        _print("unsup-simcse-ja-large", sim_simcse, human_ratio)
+        _print("simcse-ja-bert-base-clcmlp", sim_simcse_bert, human_ratio)
+        _print("sentence-bert-base-ja-mean-tokens-v2", sim_sbert, human_ratio)
+        _print("sbert-base-ja", sim_sbert_base, human_ratio)
+        _print("sbert-jsnli-luke-japanese-base-lite", sim_sbert_luke, human_ratio)
         _print("BLEU", sim_bleu, human_ratio)
         _print("NIST", sim_nist, human_ratio)
         _print("ROUGE-1 F1", sim_rouge, human_ratio)
