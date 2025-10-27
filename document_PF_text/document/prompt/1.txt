@@ -1,0 +1,27 @@
+@/src/WeatherLLM/document_PF_text/document/program/src/app/__init__.py
+@/src/WeatherLLM/document_PF_text/document/program/src/app/amedas_tsdb.py
+@/src/WeatherLLM/document_PF_text/document/program/src/app/batchSOM.py
+@/src/WeatherLLM/document_PF_text/document/program/src/app/calculation.py
+@/src/WeatherLLM/document_PF_text/document/program/src/app/chatgpt.py
+@/src/WeatherLLM/document_PF_text/document/program/src/app/check_winter_pattern.py
+@/src/WeatherLLM/document_PF_text/document/program/src/app/create_keywords.py
+@/src/WeatherLLM/document_PF_text/document/program/src/app/create_weather_text.py
+@/src/WeatherLLM/document_PF_text/document/program/src/app/forecast.py
+@/src/WeatherLLM/document_PF_text/document/program/src/app/moji_weather.py
+@/src/WeatherLLM/document_PF_text/document/program/src/app/normal_day.py
+@/src/WeatherLLM/document_PF_text/document/program/src/app/normal_month.py
+@/src/WeatherLLM/document_PF_text/document/program/src/app/normal_season.py
+@/src/WeatherLLM/document_PF_text/document/program/src/app/normal_year.py
+@/src/WeatherLLM/document_PF_text/document/program/src/app/observation.py
+@/src/WeatherLLM/document_PF_text/document/program/src/app/tokyocabinet.py
+@/src/WeatherLLM/document_PF_text/document/program/src/app/weather_code.py
+@/src/WeatherLLM/document_PF_text/document/program/src/front_line.py
+@/src/WeatherLLM/document_PF_text/document/program/src/get_latest.py
+@/src/WeatherLLM/document_PF_text/document/program/src/get.py
+@/src/WeatherLLM/document_PF_text/document/program/src/main.py
+@/src/WeatherLLM/document_PF_text/document/program/pressure_pattern_label.py
+
+上記のプログラムを全て完璧に理解して、内容や処理、アルゴリズムなどを詳しく理解してください
+その後、プログラムの流れをわかりやすく詳細にまとめた内容をマークダウン形式で@/src/WeatherLLM/document_PF_text/README.md に日本語で書き込んでください
+どんな変数があるのか、どこからどういう風に取ってくるのか、その変数をどうするのか、どこへまた出力するのか、関数はどんなものがあるか、どのファイルとどのファイルが深く関わり合っているか、日本語で詳しくわかりやすくmdファイルにまとめてください
+日本語で解説
