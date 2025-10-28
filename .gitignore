@@ -21,3 +21,4 @@ __pycache__/
 
 program/results
 *.csv
+*.out
