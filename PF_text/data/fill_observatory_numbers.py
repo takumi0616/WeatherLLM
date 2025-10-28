@@ -21,8 +21,8 @@ import sys
 from typing import Dict, List, Tuple
 
 # パス（必要に応じて引数化可能）
-CSV_PATH = "./data/csv/today_0000/2025-10-27_0000_gust.csv"
-JSON_PATH = "./data/kanku_chihou_56.json"
+CSV_PATH = "./csv/today_0000/2025-10-27_0000_gust.csv"
+JSON_PATH = "./kanku_chihou_56.json"
 BACKUP_PATH = JSON_PATH + ".bak"
 
 
