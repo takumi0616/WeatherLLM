@@ -21,6 +21,7 @@
 from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
+import json
 
 # cartopy関連
 import cartopy.crs as ccrs
@@ -44,7 +45,10 @@ def draw_map_with_red_grid(
     out_path: str,
     extent=(115.0, 155.0, 15.0, 55.0),
     base_grid_interval: float = 5.0,
-    dpi: int = 200,
+    dpi: int = 400,
+    figsize=(12, 12),
+    stations_json=None,
+    save_svg: bool = True,
 ) -> None:
     """
     指定の範囲に、黒の基準グリッド（base_grid_interval度）と
@@ -67,7 +71,7 @@ def draw_map_with_red_grid(
 
     # 投影は PlateCarree（地理座標）を使用
     proj = ccrs.PlateCarree()
-    fig = plt.figure(figsize=(8, 8), dpi=dpi)
+    fig = plt.figure(figsize=figsize, dpi=dpi)
     ax = plt.axes(projection=proj)
     ax.set_extent([lon_min, lon_max, lat_min, lat_max], crs=proj)
     ax.set_facecolor("white")
@@ -133,6 +137,42 @@ def draw_map_with_red_grid(
             zorder=3,
         )
 
+    # 観測所（JSON）を緑の点でプロット
+    try:
+        if stations_json is None:
+            stations_json = Path(__file__).resolve().parent / "kanku_chihou_56.json"
+        stations_json = Path(stations_json)
+        if stations_json.exists():
+            with stations_json.open("r", encoding="utf-8") as f:
+                _data = json.load(f)
+            st_lons = []
+            st_lats = []
+            for item in _data:
+                try:
+                    _lon = float(item.get("lon"))
+                    _lat = float(item.get("lat"))
+                except Exception:
+                    continue
+                if (lon_min <= _lon <= lon_max) and (lat_min <= _lat <= lat_max):
+                    st_lons.append(_lon)
+                    st_lats.append(_lat)
+            if st_lons and st_lats:
+                ax.scatter(
+                    st_lons,
+                    st_lats,
+                    s=50,
+                    c="limegreen",
+                    edgecolors="white",
+                    linewidths=0.6,
+                    alpha=0.95,
+                    transform=proj,
+                    zorder=4,
+                    label="気象台"
+                )
+    except Exception:
+        # JSON読み込みに失敗しても地図描画は継続
+        pass
+
     # タイトル（日本語）
     center_lat = 0.5 * (lat_min + lat_max)
     km_per_deg_lat = 111.32  # 1度あたり南北距離[km]
@@ -150,6 +190,13 @@ def draw_map_with_red_grid(
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(out_path, bbox_inches="tight", facecolor="white")
+    # 可能ならベクタ（SVG）も保存（拡大しても劣化なし）
+    if save_svg:
+        try:
+            svg_path = out_path.with_suffix(".svg")
+            plt.savefig(svg_path, bbox_inches="tight", facecolor="white")
+        except Exception:
+            pass
     plt.close(fig)
 
 
