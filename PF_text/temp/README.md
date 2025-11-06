@@ -1,7 +1,11 @@
 # コマンド
 
 ```bash
-nohup python get_era5_data.py  > get_era5_data.out 2>&1 &
+notify-run via-tml2 -- nohup python get_era5_data.py  > get_era5_data.out 2>&1 &
+
+notify-run yt03 -- nohup python get_era5_data.py  > get_era5_data.out 2>&1 &
+
+pkill -f "get_era5_data.py"
 ```
 
 # 資料
