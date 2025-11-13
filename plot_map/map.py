@@ -4,7 +4,8 @@
   - ./result_0_25.png  （赤：0.25度格子）
   - ./result_0_5.png   （赤：0.5度格子）
   - ./result_1_0.png   （赤：1.0度格子）
-- 地図範囲（経度・緯度の順）は [115, 155, 15, 55]（＝東経115–155度、北緯15–55度）
+
+- 地図範囲（経度・緯度の順）は [100, 180, 0, 70]（＝東経100–180度、北緯0–70度）
 - 黒いグリッドは5度間隔（変更可）
 - 利用ライブラリは環境指定（cartopy, matplotlib, numpy, japanize-matplotlib）内に限定
 
@@ -43,7 +44,7 @@ except Exception:
 def draw_map_with_red_grid(
     step_deg: float,
     out_path: str,
-    extent=(115.0, 155.0, 15.0, 55.0),
+    extent=(100.0, 180.0, 0.0, 70.0),
     base_grid_interval: float = 5.0,
     dpi: int = 400,
     figsize=(12, 12),
@@ -201,10 +202,10 @@ def draw_map_with_red_grid(
 
 
 def main():
-    # 指定範囲は "55 115 15 155" の読み替えとして
+    # 指定範囲は "70 100 0 180" の読み替えとして
     #  (lat_max, lon_min, lat_min, lon_max) を意味すると解釈し、
-    #  extent=(lon_min, lon_max, lat_min, lat_max) = (115, 155, 15, 55) を採用
-    extent = (115.0, 155.0, 15.0, 55.0)
+    #  extent=(lon_min, lon_max, lat_min, lat_max) = (100, 180, 0, 70) を採用
+    extent = (100.0, 180.0, 0.0, 70.0)
 
     # それぞれ1枚ずつ作成（ファイル名を明示）
     tasks = [
