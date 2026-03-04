@@ -7,7 +7,7 @@ notify-run yt03 -- nohup python get_era5_data.py  > get_era5_data.out 2>&1 &
 
 pkill -f "get_era5_data.py"
 
-rsync -avP -e "ssh -o ServerAliveInterval=60" yt03:/home/devel/work_takasuka/docker_miniconda/src/WeatherLLM/PF_text/temp/yearly_data /Users/takumi0616/Develop/docker_miniconda/src/WeatherLLM/PF_text/temp
+rsync -avP -e "ssh -o ServerAliveInterval=60" via-tml2:/home/s233319/docker_miniconda/src/WeatherLLM/PF_text/temp/yearly_seed_data /Users/takumi0616/Develop/docker_miniconda/src/WeatherLLM/PF_text/temp
 ```
 
 # 資料
