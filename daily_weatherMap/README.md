@@ -9,7 +9,7 @@ python pdf2txt.py
 ```
 
 ```bash
-python3 text2daily.py
+python text2daily.py
 ```
 
 - full_text_fix_v1.txt
